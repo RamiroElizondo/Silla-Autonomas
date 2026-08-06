@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EstadoSilla {
+  LIBRE
+  PAGO_PENDIENTE
+  EN_USO
+  FUERA_DE_SERVICIO
+}
+
+enum EstadoSesion {
+  PENDIENTE // preferencia creada, esperando pago (timeout 3 min)
+  ACTIVA // pagada o activada manualmente, silla encendida
+  COMPLETADA // terminó su tiempo normalmente
+  CANCELADA // pago no llegó, parada de emergencia, etc.
+}
+
+enum EstadoPago {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+}
+
+model Silla {
+  id              String      @id @default(uuid())
+  nombre          String
+  estado          EstadoSilla @default(LIBRE)
+  precio          Decimal     @db.Decimal(10, 2)
+  duracionMin     Int         @default(10) @map("duracion_min")
+  deviceIdShelly  String      @map("device_id_shelly")
+  // Modelo/generación detectados al vincular (ej: "S3SW-001X16EU / G3")
+  modeloShelly    String?     @map("modelo_shelly")
+  finSesionActual DateTime?   @map("fin_sesion_actual")
+  creadaEn        DateTime    @default(now()) @map("creada_en")
+  sesiones        Sesion[]
+
+  @@map("sillas")
+}
+
+model Sesion {
+  id                String       @id @default(uuid())
+  sillaId           String       @map("silla_id")
+  silla             Silla        @relation(fields: [sillaId], references: [id])
+  estado            EstadoSesion @default(PENDIENTE)
+  externalReference String       @unique @map("external_reference")
+  monto             Decimal      @db.Decimal(10, 2)
+  duracionMin       Int          @map("duracion_min")
+  esManual          Boolean      @default(false) @map("es_manual")
+  creadaEn          DateTime     @default(now()) @map("creada_en")
+  inicio            DateTime?
+  finProgramado     DateTime?    @map("fin_programado")
+  finReal           DateTime?    @map("fin_real")
+  motivoCierre      String?      @map("motivo_cierre")
+  pagos             Pago[]
+
+  @@index([sillaId, estado])
+  @@map("sesiones")
+}
+
+model Pago {
+  id          String     @id @default(uuid())
+  sesionId    String     @map("sesion_id")
+  sesion      Sesion     @relation(fields: [sesionId], references: [id])
+  paymentIdMp String     @unique @map("payment_id_mp")
+  monto       Decimal    @db.Decimal(10, 2)
+  estado      EstadoPago
+  rawWebhook  Json?      @map("raw_webhook")
+  recibidoEn  DateTime   @default(now()) @map("recibido_en")
+
+  @@map("pagos")
+}
+
+model UsuarioAdmin {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  ultimoLogin  DateTime? @map("ultimo_login")
+  creadoEn     DateTime  @default(now()) @map("creado_en")
+
+  @@map("usuarios_admin")
+}

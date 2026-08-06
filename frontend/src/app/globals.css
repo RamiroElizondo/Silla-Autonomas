@@ -1,0 +1,37 @@
+@import "tailwindcss";
+
+/* Tokens del sistema de diseño: paleta cálida crema/terracota/salvia */
+@theme {
+  --color-crema: #f7f2e9;
+  --color-marfil: #fffcf5;
+  --color-borde: #e9e1d2;
+  --color-borde-suave: #efe8d9;
+  --color-borde-fuerte: #dacfba;
+
+  --color-tinta: #2e2b26;
+  --color-tinta-suave: #6e6759;
+  --color-tinta-muted: #8a8172;
+  --color-arena: #a69c89;
+
+  --color-terracota: #b85c3f;
+  --color-terracota-hover: #a34f35;
+  --color-terracota-claro: #f3e2da;
+  --color-terracota-oscuro: #7a3b26;
+  --color-terracota-borde: #e3b7a8;
+  --color-terracota-tv: #c98b6f;
+
+  --color-salvia: #6f8261;
+  --color-salvia-claro: #e7ece0;
+  --color-salvia-oscuro: #46543c;
+
+  --color-panal: #efe9dd;
+  --color-pista: #ede5d6;
+  --color-tv-pista: #4a463e;
+
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background-color: var(--color-crema);
+  color: var(--color-tinta);
+}
