@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AdminModule } from './admin/admin.module';
+import { ColaModule } from './cola/cola.module';
 import { PagosModule } from './pagos/pagos.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SesionesModule } from './sesiones/sesiones.module';
@@ -21,6 +22,7 @@ import { SillasModule } from './sillas/sillas.module';
     SesionesModule,
     SillasModule,
     PagosModule,
+    ColaModule,
     AdminModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

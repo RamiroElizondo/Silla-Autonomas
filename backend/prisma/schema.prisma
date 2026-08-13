@@ -9,7 +9,8 @@ datasource db {
 
 enum EstadoSilla {
   LIBRE
-  PAGO_PENDIENTE
+  PAGO_PENDIENTE // pago directo a esta silla puntual, esperando confirmación de MP
+  RESERVADA // asignada a un Turno de la cola, esperando que el cliente confirme presencia
   EN_USO
   FUERA_DE_SERVICIO
 }
@@ -27,6 +28,15 @@ enum EstadoPago {
   RECHAZADO
 }
 
+enum EstadoTurno {
+  ESPERANDO_PAGO // preferencia creada, esperando pago (timeout 3 min)
+  EN_COLA // pago aprobado, esperando que se libere una silla
+  ASIGNADO // se le asignó una silla libre, esperando confirmación (timeout 2 min)
+  EN_USO // confirmó y la silla está encendida (ver Sesion enlazada)
+  COMPLETADA // terminó su tiempo normalmente
+  CANCELADA // no pagó a tiempo, no confirmó a tiempo, etc.
+}
+
 model Silla {
   id              String      @id @default(uuid())
   nombre          String
@@ -39,6 +49,7 @@ model Silla {
   finSesionActual DateTime?   @map("fin_sesion_actual")
   creadaEn        DateTime    @default(now()) @map("creada_en")
   sesiones        Sesion[]
+  turnos          Turno[]
 
   @@map("sillas")
 }
@@ -58,6 +69,7 @@ model Sesion {
   finReal           DateTime?    @map("fin_real")
   motivoCierre      String?      @map("motivo_cierre")
   pagos             Pago[]
+  turno             Turno?
 
   @@index([sillaId, estado])
   @@map("sesiones")
@@ -65,8 +77,14 @@ model Sesion {
 
 model Pago {
   id          String     @id @default(uuid())
-  sesionId    String     @map("sesion_id")
-  sesion      Sesion     @relation(fields: [sesionId], references: [id])
+  // Una de las dos siempre está seteada: pago directo a una silla (sesionId)
+  // o pago para entrar a la cola compartida (turnoId). Se registra siempre,
+  // aprobado o no, para auditoría — incluso si después no llega a activar
+  // ninguna silla (ver PagosService.procesarNotificacionPago).
+  sesionId    String?    @map("sesion_id")
+  sesion      Sesion?    @relation(fields: [sesionId], references: [id])
+  turnoId     String?    @map("turno_id")
+  turno       Turno?     @relation(fields: [turnoId], references: [id])
   paymentIdMp String     @unique @map("payment_id_mp")
   monto       Decimal    @db.Decimal(10, 2)
   estado      EstadoPago
@@ -74,6 +92,32 @@ model Pago {
   recibidoEn  DateTime   @default(now()) @map("recibido_en")
 
   @@map("pagos")
+}
+
+// Turno en la cola compartida entre todas las sillas del local. Se paga al
+// anotarse (no al confirmar), y cuando se libera una silla se le asigna al
+// turno más antiguo en EN_COLA — con una ventana de 2 min para confirmar
+// presencia antes de pasar al siguiente.
+model Turno {
+  id                String      @id @default(uuid())
+  codigo            String?     @unique // "ABC-1234", asignado al aprobarse el pago
+  estado            EstadoTurno @default(ESPERANDO_PAGO)
+  externalReference String      @unique @map("external_reference")
+  monto             Decimal     @db.Decimal(10, 2)
+  duracionMin       Int         @map("duracion_min")
+  sillaId           String?     @map("silla_id")
+  silla             Silla?      @relation(fields: [sillaId], references: [id])
+  sesionId          String?     @unique @map("sesion_id")
+  sesion            Sesion?     @relation(fields: [sesionId], references: [id])
+  pagos             Pago[]
+  creadoEn          DateTime    @default(now()) @map("creado_en")
+  pagadoEn          DateTime?   @map("pagado_en")
+  asignadoEn        DateTime?   @map("asignado_en")
+  finReal           DateTime?   @map("fin_real")
+  motivoCierre      String?     @map("motivo_cierre")
+
+  @@index([estado, pagadoEn])
+  @@map("turnos")
 }
 
 model UsuarioAdmin {

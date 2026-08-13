@@ -2,26 +2,20 @@
 
 import { use, useEffect } from "react";
 import Link from "next/link";
-import { cancelarPago } from "@/lib/api";
+import { cancelarTurno } from "@/lib/api";
 
 export default function Fracaso({
   params,
 }: {
-  params: Promise<{ id: string }>;
+  params: Promise<{ turnoId: string }>;
 }) {
-  const { id } = use(params);
+  const { turnoId } = use(params);
 
   useEffect(() => {
-    // El cliente canceló o el pago fue rechazado: liberamos la silla ya
-    // mismo en vez de dejarla "PAGO_PENDIENTE" hasta que venza el timeout.
-    // Best-effort — si esto falla, el timeout del backend la libera igual.
-    const key = `sesionPendiente:${id}`;
-    const sesionId = sessionStorage.getItem(key);
-    if (sesionId) {
-      cancelarPago(id, sesionId).catch(() => {});
-      sessionStorage.removeItem(key);
-    }
-  }, [id]);
+    // El cliente canceló o el pago fue rechazado: liberamos el lugar en la
+    // cola ya mismo en vez de dejarlo "ESPERANDO_PAGO" hasta el timeout.
+    cancelarTurno(turnoId).catch(() => {});
+  }, [turnoId]);
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center px-6 text-center">
@@ -40,10 +34,10 @@ export default function Fracaso({
         No se realizó ningún cargo. Podés intentarlo de nuevo cuando quieras.
       </p>
       <Link
-        href={`/silla/${id}`}
+        href="/"
         className="mt-8 w-full max-w-xs rounded-xl bg-terracota py-4 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover"
       >
-        Volver a intentar
+        Volver a empezar
       </Link>
     </main>
   );

@@ -1,6 +1,7 @@
 export type EstadoSilla =
   | "LIBRE"
   | "PAGO_PENDIENTE"
+  | "RESERVADA"
   | "EN_USO"
   | "FUERA_DE_SERVICIO";
 
@@ -93,4 +94,40 @@ export interface SesionAdmin {
 export interface HistorialRespuesta {
   items: SesionAdmin[];
   total: number;
+}
+
+/* ---------- Cola compartida ---------- */
+
+export type EstadoTurno =
+  | "ESPERANDO_PAGO"
+  | "EN_COLA"
+  | "ASIGNADO"
+  | "EN_USO"
+  | "COMPLETADA"
+  | "CANCELADA";
+
+/** Respuesta de GET /cola/estado */
+export interface ColaResumen {
+  enCola: number;
+  sillasLibres: number;
+  sillasTotal: number;
+}
+
+/** Respuesta de POST /cola/checkout */
+export interface TurnoCheckoutRespuesta {
+  turnoId: string;
+  initPoint: string;
+}
+
+/** Respuesta de GET /cola/:id/estado */
+export interface EstadoTurnoPublico {
+  id: string;
+  codigo: string | null;
+  estado: EstadoTurno;
+  posicion: number | null;
+  sillasLibres: number | null;
+  sillaAsignada: { id: string; nombre: string } | null;
+  segundosVentana: number | null;
+  segundosRestantesSesion: number | null;
+  duracionMin: number;
 }

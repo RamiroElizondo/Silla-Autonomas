@@ -9,7 +9,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
-import { MercadoPagoService } from './mercadopago.service';
+import { MercadoPagoService } from '../mercadopago/mercadopago.service';
 import { PagosService } from './pagos.service';
 
 @Controller('webhooks')
@@ -32,10 +32,21 @@ export class WebhooksController {
   async mercadopago(
     @Query('data.id') dataIdQuery: string | undefined,
     @Query('type') typeQuery: string | undefined,
+    @Query('topic') topicQuery: string | undefined,
     @Body() body: any,
     @Headers('x-signature') xSignature: string | undefined,
     @Headers('x-request-id') xRequestId: string | undefined,
   ) {
+    // Además del formato "webhooks v2" (`type` + `data.id`, con firma HMAC),
+    // MP manda de yapa notificaciones IPN viejas (`topic` + `id`, ej.
+    // "merchant_order") a la misma URL, sin `x-signature`. No las procesamos
+    // (no nos interesa ese topic), así que las reconocemos y las ignoramos
+    // ANTES de exigir firma — si no, se rechazan como firma inválida y MP
+    // las reintenta cada 15 min sin necesidad.
+    if (topicQuery && !typeQuery) {
+      return { recibido: true };
+    }
+
     const dataId: string | undefined = dataIdQuery ?? body?.data?.id;
     const tipo: string | undefined = typeQuery ?? body?.type;
 

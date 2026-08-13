@@ -9,9 +9,11 @@ async function bootstrap() {
     new ValidationPipe({ whitelist: true, transform: true }),
   );
 
-  app.enableCors({
-    origin: process.env.FRONTEND_URL ?? true,
-  });
+  // El navegador ya no le pega directo al backend: todo pasa por el proxy
+  // /api del frontend (server-to-server, sin CORS de por medio). Esto queda
+  // permisivo solo como comodidad para pegarle al backend a mano (curl,
+  // Postman, Swagger) durante el desarrollo.
+  app.enableCors({ origin: true });
 
   const port = Number(process.env.PORT ?? 3001);
   await app.listen(port);

@@ -1,15 +1,22 @@
 import type {
   ActualizarSillaPayload,
   CheckoutRespuesta,
+  ColaResumen,
   CrearSillaPayload,
   DispositivoCloud,
   EstadoPublico,
+  EstadoTurnoPublico,
   HistorialRespuesta,
   ResultadoPrueba,
   SillaAdmin,
+  TurnoCheckoutRespuesta,
 } from "./tipos";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+// Same-origin: todo pasa por el proxy /api del propio Next.js (ver
+// src/app/api/[...path]/route.ts), que reenvía al backend real. Así el
+// navegador nunca hace un pedido cross-origin y no hace falta CORS ni
+// exponer el backend con su propio túnel.
+const API_URL = "/api";
 
 class ApiError extends Error {
   constructor(
@@ -60,8 +67,25 @@ export function obtenerEstado(sillaId: string) {
 }
 
 export function iniciarCheckout(sillaId: string) {
+  // Le pasamos al backend el origin público actual (el dominio del túnel,
+  // o localhost en dev) para que arme ahí mismo el notification_url del
+  // webhook y los back_urls de MP, sin depender de un env var fijo.
+  const origin = typeof window !== "undefined" ? window.location.origin : undefined;
   return request<CheckoutRespuesta>(`/sillas/${sillaId}/checkout`, {
     method: "POST",
+    body: JSON.stringify(origin ? { origin } : {}),
+  });
+}
+
+/**
+ * Libera la silla al toque cuando el cliente cancela/abandona el pago en
+ * MP y vuelve a `/fracaso`, en vez de esperar el timeout de 3 min. Best
+ * effort: si falla, el timeout del backend la libera igual más tarde.
+ */
+export function cancelarPago(sillaId: string, sesionId: string) {
+  return request<{ ok: boolean }>(`/sillas/${sillaId}/cancelar-pago`, {
+    method: "POST",
+    body: JSON.stringify({ sesionId }),
   });
 }
 
@@ -124,6 +148,37 @@ export function activarManual(token: string, sillaId: string) {
 /** Parada de emergencia: corta la sesión activa y apaga el relé. */
 export function pararEmergencia(token: string, sillaId: string) {
   return request(`/admin/sillas/${sillaId}/detener`, { method: "POST" }, token);
+}
+
+/* ---------- Cola compartida ---------- */
+
+/** Resumen para mostrar en la landing de una silla ocupada. */
+export function obtenerResumenCola() {
+  return request<ColaResumen>(`/cola/estado`);
+}
+
+export function unirseCola() {
+  const origin = typeof window !== "undefined" ? window.location.origin : undefined;
+  return request<TurnoCheckoutRespuesta>(`/cola/checkout`, {
+    method: "POST",
+    body: JSON.stringify(origin ? { origin } : {}),
+  });
+}
+
+export function obtenerEstadoTurno(turnoId: string) {
+  return request<EstadoTurnoPublico>(`/cola/${turnoId}/estado`);
+}
+
+/** Best effort — si falla, el timeout del backend cancela el turno igual. */
+export function cancelarTurno(turnoId: string) {
+  return request<{ ok: boolean }>(`/cola/${turnoId}/cancelar`, { method: "POST" });
+}
+
+/** El cliente confirma presencia cuando le toca la silla asignada. */
+export function confirmarTurno(turnoId: string) {
+  return request<{ ok: boolean; sillaId: string }>(`/cola/${turnoId}/confirmar`, {
+    method: "POST",
+  });
 }
 
 export { ApiError };

@@ -90,8 +90,8 @@ export default function PantallaTV({
           </>
         ) : (
           <p className="max-w-xs text-center text-lg text-tinta-muted">
-            {estado.estado === "PAGO_PENDIENTE"
-              ? "Hay un pago en curso…"
+            {estado.estado === "PAGO_PENDIENTE" || estado.estado === "RESERVADA"
+              ? "Reservada, en un momento se libera o se ocupa…"
               : "Silla en mantenimiento"}
           </p>
         )}

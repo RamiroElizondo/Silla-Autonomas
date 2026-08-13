@@ -16,6 +16,12 @@ const config: Record<
     texto_color: "text-tinta-suave",
     punto: "bg-arena",
   },
+  RESERVADA: {
+    texto: "Reservada",
+    fondo: "bg-panal",
+    texto_color: "text-tinta-suave",
+    punto: "bg-arena",
+  },
   EN_USO: {
     texto: "En uso",
     fondo: "bg-terracota-claro",

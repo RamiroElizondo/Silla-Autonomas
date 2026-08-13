@@ -193,6 +193,13 @@ export class SesionesService implements OnApplicationBootstrap {
         where: { id: sesion.sillaId },
         data: { estado: 'LIBRE', finSesionActual: null },
       }),
+      // Si esta sesión vino de un Turno de la cola, cerrarlo también — si
+      // no, el cliente queda "EN_USO" para siempre y lo seguimos mandando
+      // a esta pantalla cada vez que escanea un QR.
+      this.prisma.turno.updateMany({
+        where: { sesionId, estado: 'EN_USO' },
+        data: { estado: 'COMPLETADA', finReal: new Date() },
+      }),
     ]);
     this.logger.log(`Silla ${sesion.silla.nombre}: LIBRE (${motivo})`);
   }
@@ -211,6 +218,15 @@ export class SesionesService implements OnApplicationBootstrap {
       this.cancelarTimer(activa.id);
       await this.prisma.sesion.update({
         where: { id: activa.id },
+        data: {
+          estado: 'CANCELADA',
+          finReal: new Date(),
+          motivoCierre: 'parada_de_emergencia',
+        },
+      });
+      // Mismo motivo que en finalizarSesion: si venía de la cola, cerrarla.
+      await this.prisma.turno.updateMany({
+        where: { sesionId: activa.id, estado: 'EN_USO' },
         data: {
           estado: 'CANCELADA',
           finReal: new Date(),
