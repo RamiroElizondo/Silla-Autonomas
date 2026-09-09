@@ -34,7 +34,6 @@ export const VENTANA_CONFIRMACION_MIN = 2;
 export class ColaService implements OnApplicationBootstrap {
   private readonly logger = new Logger(ColaService.name);
   private timers = new Map<string, NodeJS.Timeout>();
-  private readonly backendUrlFallback: string;
   private readonly frontendUrlFallback: string;
 
   constructor(
@@ -43,7 +42,6 @@ export class ColaService implements OnApplicationBootstrap {
     private readonly sesiones: SesionesService,
     config: ConfigService,
   ) {
-    this.backendUrlFallback = config.get<string>('BACKEND_URL', '');
     this.frontendUrlFallback = config.get<string>('FRONTEND_URL', '');
   }
 
@@ -122,9 +120,6 @@ export class ColaService implements OnApplicationBootstrap {
     this.programar(turno.id, limite, () => this.expirarEsperaPago(turno.id));
 
     const frontendOrigin = (origin ?? this.frontendUrlFallback).replace(/\/+$/, '');
-    const notificationUrl = origin
-      ? `${frontendOrigin}/api/webhooks/mercadopago`
-      : `${this.backendUrlFallback.replace(/\/+$/, '')}/webhooks/mercadopago`;
 
     try {
       const pref = await this.mp.crearPreferencia({
@@ -132,7 +127,6 @@ export class ColaService implements OnApplicationBootstrap {
         precio: Number(turno.monto),
         externalReference,
         itemId: turno.id,
-        notificationUrl,
         successUrl: `${frontendOrigin}/cola/${turno.id}/exito`,
         failureUrl: `${frontendOrigin}/cola/${turno.id}/fracaso`,
         pendingUrl: `${frontendOrigin}/cola/${turno.id}/fracaso`,

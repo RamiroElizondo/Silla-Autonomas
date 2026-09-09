@@ -13,7 +13,6 @@ import {
 } from '@nestjs/common';
 import { SesionesService } from '../sesiones/sesiones.service';
 import { HeartbeatService } from '../shelly/heartbeat.service';
-import { ShellyService } from '../shelly/shelly.service';
 import { AdminService } from './admin.service';
 import { ActivarManualDto, ActualizarSillaDto } from './dto/actualizar-silla.dto';
 import { CrearSillaDto } from './dto/crear-silla.dto';
@@ -26,16 +25,16 @@ export class AdminController {
     private readonly admin: AdminService,
     private readonly sesiones: SesionesService,
     private readonly heartbeat: HeartbeatService,
-    private readonly shelly: ShellyService,
   ) {}
 
   /**
-   * Lista los Shelly de la cuenta cloud con modelo y generación detectados.
-   * Para el alta de sillas: elegir el device de acá, sin tipear IDs.
+   * Verifica un device Shelly puntual (existe / online / modelo / generación).
+   * La Cloud Control API v2 no permite listar los dispositivos de la cuenta,
+   * así que el alta de sillas se hace ingresando el ID y validándolo acá.
    */
-  @Get('shelly/dispositivos')
-  dispositivos() {
-    return this.shelly.listarDispositivos();
+  @Get('shelly/dispositivos/:deviceId')
+  verificarDispositivo(@Param('deviceId') deviceId: string) {
+    return this.admin.consultarDispositivo(deviceId);
   }
 
   @Get('sillas')

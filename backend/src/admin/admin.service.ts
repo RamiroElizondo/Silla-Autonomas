@@ -2,10 +2,11 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from '../shelly/heartbeat.service';
-import { ShellyService } from '../shelly/shelly.service';
+import { DispositivoCloud, ShellyService } from '../shelly/shelly.service';
 import { ActualizarSillaDto } from './dto/actualizar-silla.dto';
 import { CrearSillaDto } from './dto/crear-silla.dto';
 
@@ -18,27 +19,62 @@ export class AdminService {
   ) {}
 
   /**
-   * Verifica que el device exista en la cuenta de Shelly Cloud y devuelve
-   * su modelo/generación. Falla si el ID no existe o el equipo está offline.
+   * Consulta un device puntual contra Shelly Cloud. La API v2 no permite
+   * listar los dispositivos de la cuenta, así que el alta pasa por acá: el
+   * admin ingresa el ID (está en la app Shelly y en la etiqueta del equipo)
+   * y esto confirma que exista, esté online y de qué modelo es.
+   *
+   * Devuelve siempre 200 aunque el equipo esté offline, para que el panel
+   * pueda mostrar el diagnóstico; el alta se corta más abajo.
    */
-  private async validarDispositivo(deviceId: string): Promise<string> {
-    const dispositivos = await this.shelly.listarDispositivos();
-    const dev = dispositivos.find((d) => d.deviceId === deviceId);
-    if (!dev) {
-      throw new BadRequestException(
-        `El device ${deviceId} no existe en la cuenta de Shelly Cloud`,
+  async consultarDispositivo(deviceId: string): Promise<{
+    deviceId: string;
+    encontrado: boolean;
+    vinculable: boolean;
+    motivo: string | null;
+    dispositivo: DispositivoCloud | null;
+  }> {
+    let dev: DispositivoCloud | null;
+    try {
+      dev = await this.shelly.verificarDispositivo(deviceId);
+    } catch (e) {
+      throw new ServiceUnavailableException(
+        `No se pudo consultar Shelly Cloud: ${e instanceof Error ? e.message : e}`,
       );
     }
-    if (!dev.online) {
-      // all_status puede traer el flag online desactualizado: confirmar en vivo
-      const directo = await this.shelly.getEstado(deviceId);
-      if (!directo.online) {
-        throw new BadRequestException(
-          `El device ${deviceId} (${dev.modelo ?? 'modelo desconocido'}) está offline: verificar WiFi del local`,
-        );
-      }
+
+    if (!dev) {
+      return {
+        deviceId,
+        encontrado: false,
+        vinculable: false,
+        motivo: `El device ${deviceId} no existe en la cuenta de Shelly Cloud`,
+        dispositivo: null,
+      };
     }
-    return [dev.modelo, dev.generacion].filter(Boolean).join(' / ') || 'desconocido';
+    if (!dev.online) {
+      return {
+        deviceId,
+        encontrado: true,
+        vinculable: false,
+        motivo: `El device ${deviceId} (${dev.modelo ?? 'modelo desconocido'}) está offline: verificar WiFi del local`,
+        dispositivo: dev,
+      };
+    }
+    return { deviceId, encontrado: true, vinculable: true, motivo: null, dispositivo: dev };
+  }
+
+  /**
+   * Igual que `consultarDispositivo` pero para el alta/edición: falla si el
+   * device no existe o está offline, y devuelve "modelo / generación".
+   */
+  private async validarDispositivo(deviceId: string): Promise<string> {
+    const r = await this.consultarDispositivo(deviceId);
+    if (!r.vinculable) throw new BadRequestException(r.motivo);
+    return (
+      [r.dispositivo?.modelo, r.dispositivo?.generacion].filter(Boolean).join(' / ') ||
+      'desconocido'
+    );
   }
 
   /** Alta de silla: valida el Shelly contra la nube y guarda su modelo. */

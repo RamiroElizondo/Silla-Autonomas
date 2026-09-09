@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { crearSilla, actualizarSilla, listarDispositivos } from "@/lib/api";
-import type { DispositivoCloud, SillaAdmin } from "@/lib/tipos";
+import { useState } from "react";
+import { crearSilla, actualizarSilla, verificarDispositivo } from "@/lib/api";
+import type { SillaAdmin, VerificacionDispositivo } from "@/lib/tipos";
 
 /**
- * Alta y edición de sillas. En el alta, el dispositivo Shelly se elige
- * de la lista de la cuenta cloud (sin tipear IDs a mano).
+ * Alta y edición de sillas. El device Shelly se ingresa a mano y se valida
+ * contra la nube con el botón "Verificar": la Cloud Control API v2 no permite
+ * listar los dispositivos de la cuenta, así que ya no hay desplegable.
+ * El ID está en la app Shelly (Device info) y en la etiqueta del equipo.
  */
 export function FormSilla({
   token,
@@ -27,22 +29,30 @@ export function FormSilla({
   );
   const [deviceId, setDeviceId] = useState(silla?.deviceIdShelly ?? "");
 
-  const [dispositivos, setDispositivos] = useState<DispositivoCloud[] | null>(
+  const [verificacion, setVerificacion] = useState<VerificacionDispositivo | null>(
     null,
   );
-  const [errorDispositivos, setErrorDispositivos] = useState<string | null>(null);
+  const [verificando, setVerificando] = useState(false);
+  const [errorVerificacion, setErrorVerificacion] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
 
-  useEffect(() => {
-    listarDispositivos(token)
-      .then(setDispositivos)
-      .catch((e) =>
-        setErrorDispositivos(
-          e instanceof Error ? e.message : "No se pudo consultar Shelly Cloud",
-        ),
+  async function verificar() {
+    const id = deviceId.trim();
+    if (!id) return;
+    setVerificando(true);
+    setVerificacion(null);
+    setErrorVerificacion(null);
+    try {
+      setVerificacion(await verificarDispositivo(token, id));
+    } catch (e) {
+      setErrorVerificacion(
+        e instanceof Error ? e.message : "No se pudo consultar Shelly Cloud",
       );
-  }, [token]);
+    } finally {
+      setVerificando(false);
+    }
+  }
 
   async function guardar(e: React.FormEvent) {
     e.preventDefault();
@@ -52,7 +62,7 @@ export function FormSilla({
       nombre: nombre.trim(),
       precio: Number(precio),
       duracionMin: Number(duracionMin),
-      deviceIdShelly: deviceId,
+      deviceIdShelly: deviceId.trim(),
     };
     try {
       if (silla) {
@@ -69,6 +79,8 @@ export function FormSilla({
 
   const claseInput =
     "rounded-xl border border-borde bg-crema px-3.5 py-2.5 text-sm outline-none placeholder:text-arena focus:border-borde-fuerte";
+
+  const dev = verificacion?.dispositivo;
 
   return (
     <form
@@ -117,44 +129,64 @@ export function FormSilla({
         </label>
       </div>
 
-      <label className="mt-3 flex flex-col gap-1.5">
-        <span className="text-xs text-tinta-muted">Dispositivo Shelly</span>
-        {errorDispositivos ? (
-          <p className="rounded-xl bg-terracota-claro px-3.5 py-2.5 text-sm text-terracota-oscuro">
-            {errorDispositivos}
-          </p>
-        ) : dispositivos === null ? (
-          <p className="animate-pulse px-1 py-2 text-sm text-tinta-muted">
-            Consultando Shelly Cloud…
-          </p>
-        ) : dispositivos.length === 0 ? (
-          <p className="rounded-xl bg-panal px-3.5 py-2.5 text-sm text-tinta-suave">
-            No hay dispositivos en la cuenta de Shelly Cloud.
-          </p>
-        ) : (
-          <select
+      <div className="mt-3 flex flex-col gap-1.5">
+        <label
+          htmlFor="deviceIdShelly"
+          className="text-xs text-tinta-muted"
+        >
+          Dispositivo Shelly
+        </label>
+        <div className="flex gap-2">
+          <input
+            id="deviceIdShelly"
             required
             value={deviceId}
-            onChange={(e) => setDeviceId(e.target.value)}
-            className={claseInput}
+            onChange={(e) => {
+              setDeviceId(e.target.value);
+              setVerificacion(null);
+              setErrorVerificacion(null);
+            }}
+            placeholder="e4b063f1a2c3"
+            spellCheck={false}
+            autoComplete="off"
+            className={`${claseInput} flex-1 font-mono`}
+          />
+          <button
+            type="button"
+            onClick={verificar}
+            disabled={verificando || !deviceId.trim()}
+            className="rounded-[10px] border border-borde-fuerte px-4 py-2 text-[13px] text-tinta-suave transition hover:bg-panal disabled:opacity-60"
           >
-            <option value="" disabled>
-              Elegir dispositivo…
-            </option>
-            {dispositivos.map((d) => (
-              <option key={d.deviceId} value={d.deviceId} disabled={!d.online}>
-                {d.deviceId}
-                {d.modelo ? ` — ${d.modelo}` : ""}
-                {d.generacion ? ` (${d.generacion})` : ""}
-                {d.online ? "" : " — offline"}
-              </option>
-            ))}
-          </select>
+            {verificando ? "Verificando…" : "Verificar"}
+          </button>
+        </div>
+
+        {errorVerificacion && (
+          <p className="rounded-xl bg-terracota-claro px-3.5 py-2.5 text-sm text-terracota-oscuro">
+            {errorVerificacion}
+          </p>
         )}
+
+        {verificacion &&
+          (verificacion.vinculable ? (
+            <p className="rounded-xl bg-salvia-claro px-3.5 py-2.5 text-sm text-salvia-oscuro">
+              Dispositivo encontrado y online
+              {dev?.modelo ? ` — ${dev.modelo}` : ""}
+              {dev?.generacion ? ` (${dev.generacion})` : ""}
+              {dev?.midePotencia ? " · mide consumo" : " · sin medición de consumo"}
+            </p>
+          ) : (
+            <p className="rounded-xl bg-terracota-claro px-3.5 py-2.5 text-sm text-terracota-oscuro">
+              {verificacion.motivo}
+            </p>
+          ))}
+
         <span className="text-xs text-arena">
-          Los equipos offline no se pueden vincular: revisá el WiFi del local.
+          El ID figura en la app Shelly (Device info) y en la etiqueta del
+          equipo. No se puede vincular un equipo offline: revisá el WiFi del
+          local.
         </span>
-      </label>
+      </div>
 
       {error && (
         <p className="mt-3 rounded-xl bg-terracota-claro px-3.5 py-2.5 text-sm text-terracota-oscuro">

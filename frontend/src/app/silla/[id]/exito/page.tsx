@@ -1,8 +1,9 @@
 "use client";
 
-import { use } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { formatearTimer, useEstadoSilla } from "@/hooks/useEstadoSilla";
+import { confirmarPagoRetorno } from "@/lib/api";
 
 export default function Exito({
   params,
@@ -10,9 +11,31 @@ export default function Exito({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  // Sondeo rápido: el webhook puede tardar unos segundos en activar la silla
+  const [errorConfirmacion, setErrorConfirmacion] = useState<string | null>(null);
+  // Sondeo rápido: el Webhook o el retorno verificado activarán la silla.
   const { estado, segundos } = useEstadoSilla(id, 2000);
   const activa = estado?.estado === "EN_USO";
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const paymentId = query.get("payment_id") ?? query.get("collection_id");
+    if (!paymentId) {
+      setErrorConfirmacion("Mercado Pago no devolvió el identificador del pago.");
+      return;
+    }
+
+    let vigente = true;
+    confirmarPagoRetorno(id, paymentId).catch((error) => {
+      if (vigente) {
+        setErrorConfirmacion(
+          error instanceof Error ? error.message : "No se pudo verificar el pago.",
+        );
+      }
+    });
+    return () => {
+      vigente = false;
+    };
+  }, [id]);
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center px-6 text-center">
@@ -27,7 +50,13 @@ export default function Exito({
           />
         </svg>
       </div>
-      <h1 className="mt-5 text-2xl font-medium">¡Pago confirmado!</h1>
+      <h1 className="mt-5 text-2xl font-medium">
+        {activa
+          ? "¡Pago confirmado!"
+          : errorConfirmacion
+            ? "No pudimos confirmar el pago"
+            : "Confirmando tu pago…"}
+      </h1>
 
       {activa ? (
         <>
@@ -41,7 +70,9 @@ export default function Exito({
         </>
       ) : (
         <p className="mt-2 text-sm text-tinta-suave">
-          Estamos encendiendo tu silla, tardará unos segundos…
+          {errorConfirmacion
+            ? `${errorConfirmacion} Avisá al encargado y no vuelvas a pagar.`
+            : "Estamos verificando el pago y encendiendo tu silla…"}
         </p>
       )}
 

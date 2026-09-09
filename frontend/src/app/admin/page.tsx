@@ -264,6 +264,8 @@ function Dashboard({
                   {silla.modeloShelly && ` · ${silla.modeloShelly}`}
                   {silla.salud?.potenciaW != null &&
                     ` · consumo ${Math.round(silla.salud.potenciaW)} W`}
+                  {silla.salud?.temperaturaC != null &&
+                    ` · ${Math.round(silla.salud.temperaturaC)} °C`}
                 </p>
                 <ResultadoPruebaLinea resultado={pruebas[silla.id]} />
                 {silla.salud?.alertas?.map((a) => (
@@ -447,6 +449,8 @@ function ResultadoPruebaLinea({
           ? "apagado"
           : "sin datos"}
       {resultado.potenciaW != null && ` · ${Math.round(resultado.potenciaW)} W`}
+      {resultado.temperaturaC != null &&
+        ` · ${Math.round(resultado.temperaturaC)} °C`}
     </p>
   );
 }

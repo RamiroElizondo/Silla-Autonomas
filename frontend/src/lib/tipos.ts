@@ -28,6 +28,8 @@ export interface SaludSilla {
   online: boolean;
   releEncendido: boolean | null;
   potenciaW: number | null;
+  /** Temperatura interna del relé en °C, si el modelo la reporta */
+  temperaturaC: number | null;
   alertas: string[];
   ultimoChequeo: string;
 }
@@ -46,12 +48,26 @@ export interface SillaAdmin {
   salud: SaludSilla | null;
 }
 
-/** Item de GET /admin/shelly/dispositivos */
+/** Dispositivo Shelly tal como lo devuelve la Cloud Control API v2 */
 export interface DispositivoCloud {
   deviceId: string;
   online: boolean;
   modelo: string | null;
   generacion: string | null;
+  releEncendido: boolean | null;
+  potenciaW: number | null;
+  temperaturaC: number | null;
+  midePotencia: boolean;
+}
+
+/** Respuesta de GET /admin/shelly/dispositivos/:deviceId */
+export interface VerificacionDispositivo {
+  deviceId: string;
+  encontrado: boolean;
+  /** false si no existe en la cuenta o está offline */
+  vinculable: boolean;
+  motivo: string | null;
+  dispositivo: DispositivoCloud | null;
 }
 
 /** Payload de POST /admin/sillas */
@@ -70,6 +86,7 @@ export interface ResultadoPrueba {
   online: boolean;
   releEncendido?: boolean | null;
   potenciaW?: number | null;
+  temperaturaC?: number | null;
   modelo?: string | null;
 }
 

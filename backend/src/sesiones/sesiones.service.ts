@@ -13,6 +13,13 @@ import { ShellyService } from '../shelly/shelly.service';
 export const TIMEOUT_PAGO_MIN = 3;
 
 /**
+ * Colchón del auto-off que se programa en la nube de Shelly (`toggle_after`)
+ * por encima de la duración de la sesión. El apagado normal lo manda el
+ * backend al vencer el timer; esto solo actúa si eso no llega a pasar.
+ */
+export const MARGEN_AUTO_OFF_SEG = 60;
+
+/**
  * Máquina de estados de la silla:
  *
  *   LIBRE → PAGO_PENDIENTE → EN_USO → LIBRE
@@ -121,7 +128,13 @@ export class SesionesService implements OnApplicationBootstrap {
 
     // Primero el relé: si Shelly falla, no cobramos tiempo que no corre.
     // (El pago ya está hecho: el admin ve la alerta y puede activar manualmente.)
-    await this.shelly.setRele(sesion.silla.deviceIdShelly, true);
+    // `toggle_after` deja programado el apagado en la nube de Shelly: si el
+    // backend se cae antes de mandar el OFF, el relé se corta igual.
+    await this.shelly.setRele(
+      sesion.silla.deviceIdShelly,
+      true,
+      sesion.duracionMin * 60 + MARGEN_AUTO_OFF_SEG,
+    );
 
     const [actualizada] = await this.prisma.$transaction([
       this.prisma.sesion.update({
@@ -178,7 +191,8 @@ export class SesionesService implements OnApplicationBootstrap {
     try {
       await this.shelly.setRele(sesion.silla.deviceIdShelly, false);
     } catch (e) {
-      // Fallback: el Shelly tiene auto-off configurado; se apaga solo.
+      // Fallback: el ON dejó programado el auto-off en la nube (toggle_after),
+      // así que el relé se corta solo a los MARGEN_AUTO_OFF_SEG del vencimiento.
       this.logger.error(
         `No se pudo apagar el relé de ${sesion.silla.nombre}; actúa el auto-off del Shelly. ${e}`,
       );

@@ -3,13 +3,13 @@ import type {
   CheckoutRespuesta,
   ColaResumen,
   CrearSillaPayload,
-  DispositivoCloud,
   EstadoPublico,
   EstadoTurnoPublico,
   HistorialRespuesta,
   ResultadoPrueba,
   SillaAdmin,
   TurnoCheckoutRespuesta,
+  VerificacionDispositivo,
 } from "./tipos";
 
 // Same-origin: todo pasa por el proxy /api del propio Next.js (ver
@@ -68,12 +68,22 @@ export function obtenerEstado(sillaId: string) {
 
 export function iniciarCheckout(sillaId: string) {
   // Le pasamos al backend el origin público actual (el dominio del túnel,
-  // o localhost en dev) para que arme ahí mismo el notification_url del
-  // webhook y los back_urls de MP, sin depender de un env var fijo.
+  // o localhost en dev) para que arme los back_urls de Mercado Pago.
   const origin = typeof window !== "undefined" ? window.location.origin : undefined;
   return request<CheckoutRespuesta>(`/sillas/${sillaId}/checkout`, {
     method: "POST",
     body: JSON.stringify(origin ? { origin } : {}),
+  });
+}
+
+/**
+ * Respaldo del Webhook al volver de Checkout Pro. El backend no confía en
+ * estos parámetros: consulta el paymentId directamente a Mercado Pago.
+ */
+export function confirmarPagoRetorno(sillaId: string, paymentId: string) {
+  return request<{ ok: boolean }>(`/sillas/${sillaId}/confirmar-pago`, {
+    method: "POST",
+    body: JSON.stringify({ paymentId }),
   });
 }
 
@@ -110,9 +120,17 @@ export function obtenerHistorial(token: string, take = 50, skip = 0) {
   );
 }
 
-/** Dispositivos Shelly de la cuenta cloud, para el alta de sillas. */
-export function listarDispositivos(token: string) {
-  return request<DispositivoCloud[]>(`/admin/shelly/dispositivos`, {}, token);
+/**
+ * Verifica un device Shelly puntual contra la nube (existe / online / modelo).
+ * La Cloud Control API v2 no permite listar los dispositivos de la cuenta,
+ * así que el alta de sillas se hace ingresando el ID y validándolo acá.
+ */
+export function verificarDispositivo(token: string, deviceId: string) {
+  return request<VerificacionDispositivo>(
+    `/admin/shelly/dispositivos/${encodeURIComponent(deviceId)}`,
+    {},
+    token,
+  );
 }
 
 export function crearSilla(token: string, payload: CrearSillaPayload) {
@@ -162,6 +180,13 @@ export function unirseCola() {
   return request<TurnoCheckoutRespuesta>(`/cola/checkout`, {
     method: "POST",
     body: JSON.stringify(origin ? { origin } : {}),
+  });
+}
+
+export function confirmarPagoTurnoRetorno(turnoId: string, paymentId: string) {
+  return request<{ ok: boolean }>(`/cola/${turnoId}/confirmar-pago`, {
+    method: "POST",
+    body: JSON.stringify({ paymentId }),
   });
 }
 

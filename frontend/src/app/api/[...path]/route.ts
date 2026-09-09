@@ -13,7 +13,7 @@ export const runtime = "nodejs";
  * ni un segundo túnel para el backend.
  */
 function backendBaseUrl(): string {
-  return (process.env.BACKEND_INTERNAL_URL ?? "http://localhost:3001").replace(/\/+$/, "");
+  return (process.env.BACKEND_INTERNAL_URL ?? "http://localhost:3002").replace(/\/+$/, "");
 }
 
 async function proxy(

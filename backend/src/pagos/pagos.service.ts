@@ -1,8 +1,17 @@
 import { randomUUID } from 'node:crypto';
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { ColaService } from '../cola/cola.service';
-import { MercadoPagoService } from '../mercadopago/mercadopago.service';
+import {
+  MercadoPagoService,
+  type PagoMP,
+} from '../mercadopago/mercadopago.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SesionesService } from '../sesiones/sesiones.service';
 import { SillasService } from '../sillas/sillas.service';
@@ -11,9 +20,7 @@ import { SillasService } from '../sillas/sillas.service';
 export class PagosService {
   private readonly logger = new Logger(PagosService.name);
   // Fallback cuando el checkout se dispara sin `origin` (ej. pruebas manuales
-  // por curl/Postman). En el uso normal, el `origin` que manda el frontend
-  // (window.location.origin) pisa a estos dos.
-  private readonly backendUrlFallback: string;
+  // por curl/Postman). En el uso normal lo reemplaza window.location.origin.
   private readonly frontendUrlFallback: string;
 
   constructor(
@@ -24,7 +31,6 @@ export class PagosService {
     private readonly cola: ColaService,
     config: ConfigService,
   ) {
-    this.backendUrlFallback = config.get<string>('BACKEND_URL', '');
     this.frontendUrlFallback = config.get<string>('FRONTEND_URL', '');
   }
 
@@ -35,11 +41,8 @@ export class PagosService {
    * 3. Crea la Preferencia en MP y devuelve la URL de Checkout Pro.
    *
    * `origin` (opcional) es el origin público desde el que el cliente abrió
-   * la landing. Si viene, el webhook se pide contra `${origin}/api/webhooks/
-   * mercadopago` — el proxy /api del frontend lo reenvía al backend real —
-   * y los back_urls apuntan al mismo origin. Así un solo túnel (el del
-   * frontend) alcanza para probar el flujo completo, sin CORS y sin tener
-   * que exponer el backend por separado.
+   * la landing y se usa para los back_urls. El Webhook se configura en el
+   * panel de Mercado Pago para no sobreescribir la configuración firmada.
    */
   async iniciarCheckout(sillaId: string, origin?: string) {
     const silla = await this.sillas.obtener(sillaId);
@@ -48,9 +51,6 @@ export class PagosService {
     const sesion = await this.sesiones.crearSesionPendiente(silla, externalReference);
 
     const frontendOrigin = (origin ?? this.frontendUrlFallback).replace(/\/+$/, '');
-    const notificationUrl = origin
-      ? `${frontendOrigin}/api/webhooks/mercadopago`
-      : `${this.backendUrlFallback.replace(/\/+$/, '')}/webhooks/mercadopago`;
 
     try {
       const pref = await this.mp.crearPreferencia({
@@ -58,7 +58,6 @@ export class PagosService {
         precio: Number(silla.precio),
         externalReference,
         itemId: sillaId,
-        notificationUrl,
         successUrl: `${frontendOrigin}/silla/${sillaId}/exito`,
         failureUrl: `${frontendOrigin}/silla/${sillaId}/fracaso`,
         pendingUrl: `${frontendOrigin}/silla/${sillaId}/fracaso`,
@@ -93,6 +92,78 @@ export class PagosService {
   }
 
   /**
+   * Respaldo del back_url cuando el Webhook todavía no llegó. El paymentId
+   * del navegador se usa únicamente para consultar la API de Mercado Pago;
+   * también se comprueba que external_reference pertenezca a esta silla.
+   */
+  async confirmarRetornoSilla(sillaId: string, paymentId: string) {
+    const pago = await this.mp.obtenerPago(paymentId);
+    if (!pago?.external_reference) {
+      throw new NotFoundException('Pago no encontrado en Mercado Pago');
+    }
+    if (pago.status !== 'approved') {
+      throw new ConflictException(`El pago todavía está en estado ${pago.status}`);
+    }
+
+    const sesion = await this.prisma.sesion.findUnique({
+      where: { externalReference: pago.external_reference },
+      select: { id: true, sillaId: true },
+    });
+    if (!sesion || sesion.sillaId !== sillaId) {
+      throw new NotFoundException('El pago no corresponde a esta silla');
+    }
+
+    await this.procesarPagoVerificado(paymentId, pago, {
+      origen: 'checkout_return',
+    });
+
+    const estado = await this.prisma.sesion.findUnique({
+      where: { id: sesion.id },
+      select: { estado: true },
+    });
+    if (estado?.estado !== 'ACTIVA') {
+      throw new ConflictException(
+        'El pago fue aprobado, pero la reserva ya venció. Avisá al encargado.',
+      );
+    }
+    return { ok: true };
+  }
+
+  /** Mismo respaldo para el pago de ingreso a la cola compartida. */
+  async confirmarRetornoTurno(turnoId: string, paymentId: string) {
+    const pago = await this.mp.obtenerPago(paymentId);
+    if (!pago?.external_reference) {
+      throw new NotFoundException('Pago no encontrado en Mercado Pago');
+    }
+    if (pago.status !== 'approved') {
+      throw new ConflictException(`El pago todavía está en estado ${pago.status}`);
+    }
+
+    const turno = await this.prisma.turno.findUnique({
+      where: { externalReference: pago.external_reference },
+      select: { id: true },
+    });
+    if (!turno || turno.id !== turnoId) {
+      throw new NotFoundException('El pago no corresponde a este turno');
+    }
+
+    await this.procesarPagoVerificado(paymentId, pago, {
+      origen: 'checkout_return',
+    });
+
+    const estado = await this.prisma.turno.findUnique({
+      where: { id: turno.id },
+      select: { estado: true },
+    });
+    if (!estado || ['ESPERANDO_PAGO', 'CANCELADA'].includes(estado.estado)) {
+      throw new ConflictException(
+        'El pago fue aprobado, pero el turno ya venció. Avisá al encargado.',
+      );
+    }
+    return { ok: true };
+  }
+
+  /**
    * Procesa una notificación de pago (ya validada la firma).
    * Reglas críticas: idempotencia por payment_id, verificación contra
    * la API de MP, y control de monto.
@@ -106,7 +177,7 @@ export class PagosService {
     const existente = await this.prisma.pago.findUnique({
       where: { paymentIdMp: paymentId },
     });
-    if (existente) {
+    if (existente?.estado === 'APROBADO') {
       this.logger.log(`Webhook duplicado para pago ${paymentId}, ignorado`);
       return;
     }
@@ -115,6 +186,23 @@ export class PagosService {
     const pago = await this.mp.obtenerPago(paymentId);
     if (!pago) {
       this.logger.warn(`Pago ${paymentId} no encontrado en MP`);
+      return;
+    }
+
+    await this.procesarPagoVerificado(paymentId, pago, rawBody);
+  }
+
+  private async procesarPagoVerificado(
+    paymentId: string,
+    pago: PagoMP,
+    rawBody: unknown,
+  ) {
+    // El Webhook y el retorno del navegador pueden llegar al mismo tiempo.
+    const existente = await this.prisma.pago.findUnique({
+      where: { paymentIdMp: paymentId },
+    });
+    if (existente?.estado === 'APROBADO') {
+      this.logger.log(`Pago ${paymentId} ya procesado, ignorado`);
       return;
     }
 
@@ -153,21 +241,21 @@ export class PagosService {
     const aprobado = pago.status === 'approved';
     const montoOk = pago.transaction_amount >= Number(sesion.monto);
 
-    // Registrar el pago siempre (aprobado o no) para auditoría
-    await this.prisma.pago.create({
-      data: {
+    const debeAplicar = await this.registrarEstadoPago(
+      paymentId,
+      aprobado,
+      {
         sesionId: sesion.id,
-        paymentIdMp: paymentId,
         monto: pago.transaction_amount,
-        estado: aprobado ? 'APROBADO' : 'RECHAZADO',
         rawWebhook: JSON.parse(JSON.stringify(rawBody ?? {})),
       },
-    });
+    );
 
     if (!aprobado) {
       this.logger.log(`Pago ${paymentId} en estado ${pago.status}, no activa silla`);
       return;
     }
+    if (!debeAplicar) return;
     if (!montoOk) {
       this.logger.error(
         `Pago ${paymentId} aprobado pero monto insuficiente: ${pago.transaction_amount} < ${sesion.monto}`,
@@ -204,21 +292,21 @@ export class PagosService {
     const aprobado = pago.status === 'approved';
     const montoOk = pago.transaction_amount >= Number(turno.monto);
 
-    // Registrar el pago siempre (aprobado o no) para auditoría
-    await this.prisma.pago.create({
-      data: {
+    const debeAplicar = await this.registrarEstadoPago(
+      paymentId,
+      aprobado,
+      {
         turnoId: turno.id,
-        paymentIdMp: paymentId,
         monto: pago.transaction_amount,
-        estado: aprobado ? 'APROBADO' : 'RECHAZADO',
         rawWebhook: JSON.parse(JSON.stringify(rawBody ?? {})),
       },
-    });
+    );
 
     if (!aprobado) {
       this.logger.log(`Pago ${paymentId} en estado ${pago.status}, no anota en cola`);
       return;
     }
+    if (!debeAplicar) return;
     if (!montoOk) {
       this.logger.error(
         `Pago ${paymentId} aprobado pero monto insuficiente: ${pago.transaction_amount} < ${turno.monto}`,
@@ -228,5 +316,47 @@ export class PagosService {
 
     await this.cola.procesarPagoAprobado(turno.id);
     this.logger.log(`Pago ${paymentId} aprobado → turno ${turno.id} en cola`);
+  }
+
+  /**
+   * Registra una notificación de forma atómica frente a la carrera entre el
+   * Webhook y el back_url. Devuelve true solo al proceso que debe aplicar el
+   * pago aprobado a la silla/cola.
+   */
+  private async registrarEstadoPago(
+    paymentId: string,
+    aprobado: boolean,
+    data: Omit<Prisma.PagoUncheckedCreateInput, 'paymentIdMp' | 'estado'>,
+  ): Promise<boolean> {
+    if (aprobado) {
+      const actualizado = await this.prisma.pago.updateMany({
+        where: { paymentIdMp: paymentId, estado: 'RECHAZADO' },
+        data: {
+          estado: 'APROBADO',
+          monto: data.monto,
+          rawWebhook: data.rawWebhook,
+        },
+      });
+      if (actualizado.count > 0) return true;
+    }
+
+    try {
+      await this.prisma.pago.create({
+        data: {
+          ...data,
+          paymentIdMp: paymentId,
+          estado: aprobado ? 'APROBADO' : 'RECHAZADO',
+        },
+      });
+      return aprobado;
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        return false;
+      }
+      throw error;
+    }
   }
 }

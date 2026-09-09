@@ -21,7 +21,7 @@ export class CrearSillaDto {
   @Max(120)
   duracionMin!: number;
 
-  /** ID del dispositivo en Shelly Cloud (elegir de GET /admin/shelly/dispositivos). */
+  /** ID del dispositivo en Shelly Cloud (validar con GET /admin/shelly/dispositivos/:deviceId). */
   @IsString()
   @IsNotEmpty()
   deviceIdShelly!: string;

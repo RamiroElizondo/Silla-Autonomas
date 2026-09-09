@@ -38,7 +38,6 @@ export class MercadoPagoService {
     precio: number;
     externalReference: string;
     itemId: string;
-    notificationUrl: string;
     successUrl: string;
     failureUrl: string;
     pendingUrl: string;
@@ -58,7 +57,9 @@ export class MercadoPagoService {
             },
           ],
           external_reference: params.externalReference,
-          notification_url: params.notificationUrl,
+          // La URL del Webhook se administra en Tus integraciones. No se
+          // sobreescribe por preferencia: la firma secreta corresponde a la
+          // configuración registrada de la aplicación.
           back_urls: {
             success: params.successUrl,
             failure: params.failureUrl,

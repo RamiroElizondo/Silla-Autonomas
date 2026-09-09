@@ -1,8 +1,9 @@
 "use client";
 
-import { use } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useEstadoTurno } from "@/hooks/useEstadoTurno";
+import { confirmarPagoTurnoRetorno } from "@/lib/api";
 
 export default function Exito({
   params,
@@ -10,9 +11,31 @@ export default function Exito({
   params: Promise<{ turnoId: string }>;
 }) {
   const { turnoId } = use(params);
-  // Sondeo rápido: el webhook puede tardar unos segundos en anotarte en la cola
+  const [errorConfirmacion, setErrorConfirmacion] = useState<string | null>(null);
+  // Sondeo rápido: el Webhook o el retorno verificado anotarán el turno.
   const { turno } = useEstadoTurno(turnoId, 2000);
   const enCola = turno && turno.estado !== "ESPERANDO_PAGO";
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const paymentId = query.get("payment_id") ?? query.get("collection_id");
+    if (!paymentId) {
+      setErrorConfirmacion("Mercado Pago no devolvió el identificador del pago.");
+      return;
+    }
+
+    let vigente = true;
+    confirmarPagoTurnoRetorno(turnoId, paymentId).catch((error) => {
+      if (vigente) {
+        setErrorConfirmacion(
+          error instanceof Error ? error.message : "No se pudo verificar el pago.",
+        );
+      }
+    });
+    return () => {
+      vigente = false;
+    };
+  }, [turnoId]);
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center px-6 text-center">
@@ -27,11 +50,19 @@ export default function Exito({
           />
         </svg>
       </div>
-      <h1 className="mt-5 text-2xl font-medium">¡Pago confirmado!</h1>
-      <p className="mt-2 text-sm text-tinta-suave">
+      <h1 className="mt-5 text-2xl font-medium">
         {enCola
-          ? "Ya estás anotado en la cola. Te avisamos apenas te toque."
-          : "Estamos anotándote en la cola, tardará unos segundos…"}
+          ? "¡Pago confirmado!"
+          : errorConfirmacion
+            ? "No pudimos confirmar el pago"
+            : "Confirmando tu pago…"}
+      </h1>
+      <p className="mt-2 text-sm text-tinta-suave">
+        {errorConfirmacion
+          ? `${errorConfirmacion} Avisá al encargado y no vuelvas a pagar.`
+          : enCola
+            ? "Ya estás anotado en la cola. Te avisamos apenas te toque."
+            : "Estamos verificando el pago y anotándote en la cola…"}
       </p>
 
       <Link
