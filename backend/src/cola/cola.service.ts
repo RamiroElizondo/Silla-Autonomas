@@ -8,9 +8,11 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
+import { CreditosService } from '../creditos/creditos.service';
 import { MercadoPagoService } from '../mercadopago/mercadopago.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SesionesService } from '../sesiones/sesiones.service';
+import { HeartbeatService } from '../shelly/heartbeat.service';
 import { generarCodigo } from './codigo.util';
 
 /** Minutos que se espera el pago de un turno antes de cancelarlo. */
@@ -40,6 +42,8 @@ export class ColaService implements OnApplicationBootstrap {
     private readonly prisma: PrismaService,
     private readonly mp: MercadoPagoService,
     private readonly sesiones: SesionesService,
+    private readonly heartbeat: HeartbeatService,
+    private readonly creditos: CreditosService,
     config: ConfigService,
   ) {
     this.frontendUrlFallback = config.get<string>('FRONTEND_URL', '');
@@ -100,12 +104,20 @@ export class ColaService implements OnApplicationBootstrap {
     // Todas las sillas del local cobran lo mismo hoy (asunción de v1): se
     // usa cualquier silla activa como referencia de precio/duración, ya que
     // al anotarse todavía no se sabe qué silla puntual va a tocar.
-    const silla = await this.prisma.silla.findFirst({
+    const sillas = await this.prisma.silla.findMany({
       where: { estado: { not: 'FUERA_DE_SERVICIO' } },
     });
-    if (!silla) {
+    if (sillas.length === 0) {
       throw new NotFoundException('No hay sillas disponibles en este local');
     }
+    // Si el local está sin luz no hay turno que valga: mejor no cobrarlo.
+    const conEnergia = sillas.filter((s) => !this.heartbeat.estaOffline(s.id));
+    if (conEnergia.length === 0) {
+      throw new ConflictException(
+        'Las sillas están sin conexión en este momento. Probá en unos minutos.',
+      );
+    }
+    const silla = conEnergia[0];
 
     const externalReference = `turno:${randomUUID()}`;
     const turno = await this.prisma.turno.create({
@@ -203,7 +215,10 @@ export class ColaService implements OnApplicationBootstrap {
       });
       if (!turno) return;
 
-      const silla = await this.prisma.silla.findFirst({ where: { estado: 'LIBRE' } });
+      // Una silla sin energía está libre en la base pero no puede encender:
+      // asignarla le quemaría al cliente su ventana de 2 minutos.
+      const libres = await this.prisma.silla.findMany({ where: { estado: 'LIBRE' } });
+      const silla = libres.find((l) => !this.heartbeat.estaOffline(l.id));
       if (!silla) return;
 
       const reservada = await this.prisma.silla.updateMany({
@@ -307,7 +322,10 @@ export class ColaService implements OnApplicationBootstrap {
   async estadoTurno(turnoId: string) {
     const turno = await this.prisma.turno.findUnique({
       where: { id: turnoId },
-      include: { silla: true },
+      include: {
+        silla: true,
+        sesion: { select: { id: true, estado: true, interrumpidaEn: true } },
+      },
     });
     if (!turno) throw new NotFoundException('Turno no encontrado');
 
@@ -336,6 +354,12 @@ export class ColaService implements OnApplicationBootstrap {
       );
     }
 
+    // Si el turno se cayó por un corte de energía, el cliente tiene un vale
+    // esperándolo: se lo mostramos acá, que es la pantalla que ya tiene abierta.
+    const credito = turno.sesionId
+      ? await this.creditos.porSesion(turno.sesionId)
+      : null;
+
     return {
       id: turno.id,
       codigo: turno.codigo,
@@ -346,7 +370,63 @@ export class ColaService implements OnApplicationBootstrap {
       segundosVentana,
       segundosRestantesSesion,
       duracionMin: turno.duracionMin,
+      sesionEstado: turno.sesion?.estado ?? null,
+      interrumpida: turno.sesion?.interrumpidaEn != null,
+      motivoCierre: turno.motivoCierre,
+      credito: credito
+        ? {
+            codigo: credito.codigo,
+            duracionMin: credito.duracionMin,
+            estado: credito.estado,
+            venceEn: credito.venceEn,
+          }
+        : null,
     };
+  }
+
+  // ── Canje de créditos ──────────────────────────────────────────
+
+  /**
+   * El cliente ingresa el código de un vale y vuelve a la cola sin pagar de
+   * nuevo. Entra con la antigüedad que ya tenía (`prioridadDesde`), no al
+   * final de la fila: el corte de luz no fue culpa suya.
+   *
+   * El canje es la confirmación de que sigue en el local — por eso no le
+   * preguntamos nada antes de emitir el vale: si se fue, simplemente no lo
+   * canjea y el vale vence solo.
+   */
+  async canjearCredito(codigoIngresado: string) {
+    const credito = await this.creditos.tomar(codigoIngresado);
+
+    const codigo = await this.generarCodigoUnico();
+    let turno;
+    try {
+      turno = await this.prisma.turno.create({
+        data: {
+          externalReference: `credito:${credito.id}`,
+          monto: 0,
+          duracionMin: credito.duracionMin,
+          estado: 'EN_COLA',
+          codigo,
+          pagadoEn: credito.prioridadDesde,
+        },
+      });
+    } catch (e) {
+      // No dejamos el vale quemado por un error nuestro.
+      await this.prisma.credito.updateMany({
+        where: { id: credito.id, estado: 'CANJEADO' },
+        data: { estado: 'DISPONIBLE', canjeadoEn: null },
+      });
+      throw e;
+    }
+
+    await this.creditos.vincularTurno(credito.id, turno.id);
+    this.logger.log(
+      `Crédito ${credito.codigo} canjeado → turno ${turno.id} (${codigo}), ` +
+        `${credito.duracionMin} min`,
+    );
+    await this.intentarAsignar();
+    return { turnoId: turno.id, codigo, duracionMin: turno.duracionMin };
   }
 
   // ── Timers ────────────────────────────────────────────────────

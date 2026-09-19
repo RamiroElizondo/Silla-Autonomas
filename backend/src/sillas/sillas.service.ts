@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { HeartbeatService } from '../shelly/heartbeat.service';
 
 @Injectable()
 export class SillasService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly heartbeat: HeartbeatService,
+  ) {}
 
   async obtener(id: string) {
     const silla = await this.prisma.silla.findUnique({ where: { id } });
@@ -30,6 +34,10 @@ export class SillasService {
       precio: Number(silla.precio),
       duracionMin: silla.duracionMin,
       segundosRestantes,
+      // El relé no contesta: casi siempre es corte de luz en el local. La
+      // landing esconde el botón de pagar — no cobramos lo que no podemos
+      // entregar.
+      sinEnergia: this.heartbeat.estaOffline(silla.id),
     };
   }
 }

@@ -4,9 +4,14 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { CreditosService } from '../creditos/creditos.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from '../shelly/heartbeat.service';
-import { DispositivoCloud, ShellyService } from '../shelly/shelly.service';
+import {
+  DispositivoCloud,
+  INITIAL_STATE_ESPERADO,
+  ShellyService,
+} from '../shelly/shelly.service';
 import { ActualizarSillaDto } from './dto/actualizar-silla.dto';
 import { CrearSillaDto } from './dto/crear-silla.dto';
 
@@ -16,6 +21,7 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly heartbeat: HeartbeatService,
     private readonly shelly: ShellyService,
+    private readonly creditos: CreditosService,
   ) {}
 
   /**
@@ -32,6 +38,8 @@ export class AdminService {
     encontrado: boolean;
     vinculable: boolean;
     motivo: string | null;
+    /** Configuración peligrosa pero no bloqueante (ver initial_state). */
+    advertencia: string | null;
     dispositivo: DispositivoCloud | null;
   }> {
     let dev: DispositivoCloud | null;
@@ -49,6 +57,7 @@ export class AdminService {
         encontrado: false,
         vinculable: false,
         motivo: `El device ${deviceId} no existe en la cuenta de Shelly Cloud`,
+        advertencia: null,
         dispositivo: null,
       };
     }
@@ -58,10 +67,40 @@ export class AdminService {
         encontrado: true,
         vinculable: false,
         motivo: `El device ${deviceId} (${dev.modelo ?? 'modelo desconocido'}) está offline: verificar WiFi del local`,
+        advertencia: null,
         dispositivo: dev,
       };
     }
-    return { deviceId, encontrado: true, vinculable: true, motivo: null, dispositivo: dev };
+    return {
+      deviceId,
+      encontrado: true,
+      vinculable: true,
+      motivo: null,
+      advertencia: AdminService.advertirInitialState(dev.initialState),
+      dispositivo: dev,
+    };
+  }
+
+  /**
+   * `initial_state` decide qué hace el relé cuando vuelve la luz. Si no está
+   * en "off", al volver un corte la silla puede encenderse sola sin sesión
+   * detrás. No bloquea el alta (el equipo funciona igual y el backend lo
+   * apaga solo), pero el dueño tiene que verlo y corregirlo en la app.
+   */
+  private static advertirInitialState(valor: string | null): string | null {
+    if (valor === null) return null; // el equipo no lo reporta
+    if (valor === INITIAL_STATE_ESPERADO) return null;
+    const explicacion: Record<string, string> = {
+      on: 'la silla arranca encendida cada vez que vuelve la luz',
+      restore_last:
+        'al volver la luz la silla se enciende sola si estaba encendida al cortarse',
+      match_input: 'el relé sigue al interruptor físico, no al sistema',
+    };
+    return (
+      `El Shelly tiene "Acción al encender" en "${valor}": ` +
+      `${explicacion[valor] ?? 'puede encender la silla sin sesión detrás'}. ` +
+      `Ponelo en "Apagar" desde la app Shelly (Configuración → Salida → Acción al encender).`
+    );
   }
 
   /**
@@ -122,6 +161,15 @@ export class AdminService {
     return { total, items };
   }
 
+  /**
+   * Vales emitidos por cortes de energía. El dueño los necesita a mano: si
+   * un cliente vuelve al día siguiente con un código, acá está el respaldo
+   * de qué sesión lo originó y si ya se usó.
+   */
+  listarCreditos(take = 50) {
+    return this.creditos.listar(take);
+  }
+
   /** Métricas simples: hoy y últimos 30 días. */
   async metricas() {
     const hoy = new Date();
@@ -171,13 +219,16 @@ export class AdminService {
   async probarSilla(id: string) {
     const silla = await this.prisma.silla.findUnique({ where: { id } });
     if (!silla) throw new NotFoundException('Silla no encontrada');
-    const estado = await this.shelly.getEstado(silla.deviceIdShelly);
+    // Con settings: es el lugar donde el dueño revisa un equipo ya vinculado,
+    // así que también le confirmamos que `initial_state` siga bien puesto.
+    const estado = await this.shelly.getEstado(silla.deviceIdShelly, true);
     return {
       sillaId: silla.id,
       deviceId: silla.deviceIdShelly,
       modeloRegistrado: silla.modeloShelly,
       ...estado,
       midePotencia: estado.potenciaW !== null,
+      advertencia: AdminService.advertirInitialState(estado.initialState),
     };
   }
 }

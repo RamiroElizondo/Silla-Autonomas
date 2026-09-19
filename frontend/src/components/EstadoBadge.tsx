@@ -36,14 +36,25 @@ const config: Record<
   },
 };
 
+/** Sin conexión con el relé: lo tratamos como un estado propio, porque para
+ *  el cliente no es lo mismo "ocupada" que "no la podemos encender". */
+const SIN_ENERGIA = {
+  texto: "Sin conexión",
+  fondo: "bg-panal",
+  texto_color: "text-tinta-suave",
+  punto: "bg-arena",
+};
+
 export function EstadoBadge({
   estado,
   sufijo,
+  sinEnergia = false,
 }: {
   estado: EstadoSilla;
   sufijo?: string;
+  sinEnergia?: boolean;
 }) {
-  const c = config[estado];
+  const c = sinEnergia && estado !== "FUERA_DE_SERVICIO" ? SIN_ENERGIA : config[estado];
   return (
     <span
       className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[13px] font-medium ${c.fondo} ${c.texto_color}`}

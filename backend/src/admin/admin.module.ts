@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
+import { CreditosModule } from '../creditos/creditos.module';
 import { SesionesModule } from '../sesiones/sesiones.module';
 import { ShellyModule } from '../shelly/shelly.module';
 import { AdminController } from './admin.controller';
@@ -13,6 +14,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
   imports: [
     SesionesModule,
     ShellyModule,
+    CreditosModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({

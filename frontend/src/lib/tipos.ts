@@ -13,6 +13,16 @@ export interface EstadoPublico {
   precio: number;
   duracionMin: number;
   segundosRestantes: number | null;
+  /** El Shelly no responde: casi siempre corte de luz en el local. */
+  sinEnergia: boolean;
+}
+
+/** Vale por tiempo pagado que no se pudo prestar (corte de energía). */
+export interface CreditoPublico {
+  codigo: string;
+  duracionMin: number;
+  estado: "DISPONIBLE" | "CANJEADO" | "VENCIDO";
+  venceEn: string;
 }
 
 /** Respuesta de POST /sillas/:id/checkout */
@@ -58,6 +68,8 @@ export interface DispositivoCloud {
   potenciaW: number | null;
   temperaturaC: number | null;
   midePotencia: boolean;
+  /** "off" | "on" | "restore_last" | "match_input" — debe ser "off". */
+  initialState: string | null;
 }
 
 /** Respuesta de GET /admin/shelly/dispositivos/:deviceId */
@@ -67,6 +79,8 @@ export interface VerificacionDispositivo {
   /** false si no existe en la cuenta o está offline */
   vinculable: boolean;
   motivo: string | null;
+  /** Configuración riesgosa que no impide vincular (ej. initial_state). */
+  advertencia: string | null;
   dispositivo: DispositivoCloud | null;
 }
 
@@ -88,9 +102,39 @@ export interface ResultadoPrueba {
   potenciaW?: number | null;
   temperaturaC?: number | null;
   modelo?: string | null;
+  initialState?: string | null;
+  advertencia?: string | null;
 }
 
-export type EstadoSesion = "PENDIENTE" | "ACTIVA" | "COMPLETADA" | "CANCELADA";
+export type EstadoSesion =
+  | "PENDIENTE"
+  | "ESPERANDO_ENERGIA"
+  | "ACTIVA"
+  | "COMPLETADA"
+  | "CANCELADA";
+
+/** Respuesta de GET /sesiones/:id/estado (la sesión propia del cliente) */
+export interface EstadoSesionPublico {
+  id: string;
+  estado: EstadoSesion;
+  sillaId: string;
+  sillaNombre: string;
+  duracionMin: number;
+  segundosRestantes: number | null;
+  /** Corte de energía en curso: la silla está apagada y el reloj, congelado. */
+  interrumpida: boolean;
+  cortes: number;
+  segundosCompensados: number;
+  motivoCierre: string | null;
+  credito: CreditoPublico | null;
+}
+
+/** Respuesta de POST /cola/canjear */
+export interface CanjeRespuesta {
+  turnoId: string;
+  codigo: string;
+  duracionMin: number;
+}
 
 /** Item de GET /admin/sesiones */
 export interface SesionAdmin {
@@ -105,7 +149,24 @@ export interface SesionAdmin {
   finProgramado: string | null;
   finReal: string | null;
   motivoCierre: string | null;
+  /** Cortes de energía que tuvo la sesión y segundos devueltos por ellos. */
+  cortes: number;
+  segundosCompensados: number;
   silla?: { nombre: string };
+}
+
+/** Item de GET /admin/creditos */
+export interface CreditoAdmin {
+  id: string;
+  codigo: string;
+  estado: "DISPONIBLE" | "CANJEADO" | "VENCIDO";
+  duracionMin: number;
+  motivo: string;
+  creadoEn: string;
+  venceEn: string;
+  canjeadoEn: string | null;
+  sesionOrigen: { id: string; silla: { nombre: string } } | null;
+  turnoGenerado: { id: string; codigo: string | null; estado: EstadoTurno } | null;
 }
 
 export interface HistorialRespuesta {
@@ -147,4 +208,8 @@ export interface EstadoTurnoPublico {
   segundosVentana: number | null;
   segundosRestantesSesion: number | null;
   duracionMin: number;
+  sesionEstado: EstadoSesion | null;
+  interrumpida: boolean;
+  motivoCierre: string | null;
+  credito: CreditoPublico | null;
 }

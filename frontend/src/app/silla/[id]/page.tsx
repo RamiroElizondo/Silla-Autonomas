@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { EstadoBadge } from "@/components/EstadoBadge";
 import { BarraProgreso } from "@/components/BarraProgreso";
+import { FormCodigoCredito } from "@/components/FormCodigoCredito";
 import { formatearTimer, useEstadoSilla } from "@/hooks/useEstadoSilla";
 import { iniciarCheckout, obtenerResumenCola, unirseCola } from "@/lib/api";
 import type { ColaResumen } from "@/lib/tipos";
@@ -37,12 +38,17 @@ export default function LandingSilla({
   }, [router]);
 
   const ocupada = estado && estado.estado !== "LIBRE" && estado.estado !== "FUERA_DE_SERVICIO";
+  // Sin energía la silla figura libre en la base pero no puede encender. No
+  // ofrecemos pagarla: cobrar y no poder entregar es peor que no vender.
+  const sinEnergia = estado?.sinEnergia === true && estado.estado !== "FUERA_DE_SERVICIO";
+  const sePuedePagarAca = estado?.estado === "LIBRE" && !sinEnergia;
+  const mostrarCola = Boolean(ocupada) || sinEnergia;
 
-  // Cuando esta silla puntual no está libre, mostramos cuánta gente espera
-  // en la cola compartida — se puede pagar igual y te asignamos la primera
-  // silla que se libere (no necesariamente esta).
+  // Cuando esta silla puntual no está disponible, mostramos cuánta gente
+  // espera en la cola compartida — se puede pagar igual y te asignamos la
+  // primera silla que se libere (no necesariamente esta).
   useEffect(() => {
-    if (!ocupada) return;
+    if (!mostrarCola) return;
     let cancelado = false;
     async function cargar() {
       try {
@@ -58,7 +64,7 @@ export default function LandingSilla({
       cancelado = true;
       clearInterval(intervalo);
     };
-  }, [ocupada]);
+  }, [mostrarCola]);
 
   async function pagar() {
     setPagando(true);
@@ -66,7 +72,8 @@ export default function LandingSilla({
     try {
       const { sesionId, initPoint } = await iniciarCheckout(id);
       // Lo guardamos para que /fracaso pueda liberar la silla al toque si
-      // el cliente cancela, en vez de esperar el timeout de 3 min.
+      // el cliente cancela, y para que /exito pueda seguir ESTA sesión
+      // (cortes de luz, vales) y no el estado general de la silla.
       sessionStorage.setItem(`sesionPendiente:${id}`, sesionId);
       window.location.href = initPoint;
     } catch (e) {
@@ -126,11 +133,25 @@ export default function LandingSilla({
       <div className="mt-3.5">
         <EstadoBadge
           estado={estado.estado}
+          sinEnergia={sinEnergia}
           sufijo={estado.estado === "EN_USO" ? formatearTimer(segundos) : undefined}
         />
       </div>
 
-      {estado.estado === "LIBRE" && (
+      {sinEnergia && (
+        <div className="mt-6 rounded-2xl border border-arena bg-panal p-6 text-center">
+          <p className="text-[15px] font-medium">Esta silla está sin conexión</p>
+          <p className="mt-2 text-sm text-tinta-suave">
+            Puede ser un corte de luz en el local. No te la cobramos hasta que
+            podamos encenderla.
+          </p>
+          <p className="mt-3 text-xs text-arena">
+            Esta pantalla se actualiza sola cuando vuelve
+          </p>
+        </div>
+      )}
+
+      {sePuedePagarAca && (
         <>
           <div className="mt-6 rounded-2xl border border-borde bg-marfil p-6">
             <p className="text-[13px] text-tinta-muted">Masaje completo</p>
@@ -162,7 +183,7 @@ export default function LandingSilla({
         </>
       )}
 
-      {estado.estado === "EN_USO" && (
+      {estado.estado === "EN_USO" && !sinEnergia && (
         <>
           <div className="mt-6 rounded-2xl border border-borde bg-marfil p-7 text-center">
             <p className="text-[13px] text-tinta-muted">Tiempo restante</p>
@@ -182,17 +203,18 @@ export default function LandingSilla({
         </>
       )}
 
-      {(estado.estado === "PAGO_PENDIENTE" || estado.estado === "RESERVADA") && (
-        <div className="mt-6 rounded-2xl border border-borde bg-marfil p-6 text-center">
-          <p className="text-[15px] font-medium">Esta silla está reservada</p>
-          <p className="mt-2 text-sm text-tinta-muted">
-            Alguien está por usarla. Si no se confirma en unos minutos, vuelve
-            a quedar libre.
-          </p>
-        </div>
-      )}
+      {(estado.estado === "PAGO_PENDIENTE" || estado.estado === "RESERVADA") &&
+        !sinEnergia && (
+          <div className="mt-6 rounded-2xl border border-borde bg-marfil p-6 text-center">
+            <p className="text-[15px] font-medium">Esta silla está reservada</p>
+            <p className="mt-2 text-sm text-tinta-muted">
+              Alguien está por usarla. Si no se confirma en unos minutos, vuelve
+              a quedar libre.
+            </p>
+          </div>
+        )}
 
-      {ocupada && (
+      {mostrarCola && (
         <>
           <div className="mt-4 rounded-2xl border border-borde bg-marfil p-6 text-center">
             <p className="text-[15px] font-medium">
@@ -232,6 +254,8 @@ export default function LandingSilla({
           </p>
         </div>
       )}
+
+      <FormCodigoCredito />
     </main>
   );
 }

@@ -169,12 +169,19 @@ export function FormSilla({
 
         {verificacion &&
           (verificacion.vinculable ? (
-            <p className="rounded-xl bg-salvia-claro px-3.5 py-2.5 text-sm text-salvia-oscuro">
-              Dispositivo encontrado y online
-              {dev?.modelo ? ` — ${dev.modelo}` : ""}
-              {dev?.generacion ? ` (${dev.generacion})` : ""}
-              {dev?.midePotencia ? " · mide consumo" : " · sin medición de consumo"}
-            </p>
+            <>
+              <p className="rounded-xl bg-salvia-claro px-3.5 py-2.5 text-sm text-salvia-oscuro">
+                Dispositivo encontrado y online
+                {dev?.modelo ? ` — ${dev.modelo}` : ""}
+                {dev?.generacion ? ` (${dev.generacion})` : ""}
+                {dev?.midePotencia ? " · mide consumo" : " · sin medición de consumo"}
+              </p>
+              {verificacion.advertencia && (
+                <p className="rounded-xl bg-panal px-3.5 py-2.5 text-sm text-tinta-suave">
+                  ⚠ {verificacion.advertencia}
+                </p>
+              )}
+            </>
           ) : (
             <p className="rounded-xl bg-terracota-claro px-3.5 py-2.5 text-sm text-terracota-oscuro">
               {verificacion.motivo}

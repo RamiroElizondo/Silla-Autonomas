@@ -2,7 +2,9 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
+import { AvisoCorte } from "@/components/AvisoCorte";
 import { BarraProgreso } from "@/components/BarraProgreso";
+import { TarjetaCredito } from "@/components/TarjetaCredito";
 import { confirmarTurno } from "@/lib/api";
 import { formatearTimer } from "@/hooks/useEstadoSilla";
 import { useEstadoTurno } from "@/hooks/useEstadoTurno";
@@ -123,7 +125,19 @@ export default function EstadoTurno({
         </>
       )}
 
-      {turno.estado === "EN_USO" && (
+      {turno.estado === "EN_USO" && turno.interrumpida && <AvisoCorte />}
+
+      {turno.estado === "EN_USO" && turno.sesionEstado === "ESPERANDO_ENERGIA" && (
+        <div className="mt-6 w-full rounded-2xl border border-arena bg-panal p-6">
+          <p className="text-[15px] font-medium">La silla está sin luz</p>
+          <p className="mt-2 text-sm text-tinta-suave">
+            Tu turno sigue siendo tuyo. La encendemos sola apenas vuelva la
+            energía.
+          </p>
+        </div>
+      )}
+
+      {turno.estado === "EN_USO" && !turno.interrumpida && turno.sesionEstado !== "ESPERANDO_ENERGIA" && (
         <>
           <p className="mt-2 text-sm text-tinta-suave">
             {turno.sillaAsignada?.nombre ?? "Tu silla"} está encendida. Disfrutá.
@@ -149,7 +163,15 @@ export default function EstadoTurno({
         </p>
       )}
 
-      {turno.estado === "CANCELADA" && (
+      {turno.estado === "CANCELADA" && turno.credito && (
+        <TarjetaCredito
+          credito={turno.credito}
+          titulo="Se cortó la luz"
+          detalle={`No perdés tu turno: te queda un vale por ${turno.credito.duracionMin} minutos.`}
+        />
+      )}
+
+      {turno.estado === "CANCELADA" && !turno.credito && (
         <>
           <p className="mt-6 text-sm text-tinta-suave">
             Tu turno se canceló (no llegaste a confirmar a tiempo, o venció la

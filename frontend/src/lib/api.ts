@@ -1,9 +1,12 @@
 import type {
   ActualizarSillaPayload,
+  CanjeRespuesta,
   CheckoutRespuesta,
   ColaResumen,
   CrearSillaPayload,
+  CreditoAdmin,
   EstadoPublico,
+  EstadoSesionPublico,
   EstadoTurnoPublico,
   HistorialRespuesta,
   ResultadoPrueba,
@@ -64,6 +67,15 @@ async function request<T>(
 
 export function obtenerEstado(sillaId: string) {
   return request<EstadoPublico>(`/sillas/${sillaId}/estado`);
+}
+
+/**
+ * Estado de la sesión propia del cliente. El estado de la silla no alcanza:
+ * si un corte corta la sesión, la silla vuelve a estar libre para otro y esta
+ * es la única pantalla donde el cliente ve su vale.
+ */
+export function obtenerEstadoSesion(sesionId: string) {
+  return request<EstadoSesionPublico>(`/sesiones/${sesionId}/estado`);
 }
 
 export function iniciarCheckout(sillaId: string) {
@@ -153,6 +165,11 @@ export function actualizarSilla(
   );
 }
 
+/** Vales emitidos por cortes de energía. */
+export function obtenerCreditos(token: string, take = 50) {
+  return request<CreditoAdmin[]>(`/admin/creditos?take=${take}`, {}, token);
+}
+
 /** Prueba de conexión con el Shelly de la silla (estado al momento). */
 export function probarSilla(token: string, sillaId: string) {
   return request<ResultadoPrueba>(`/admin/sillas/${sillaId}/probar`, {}, token);
@@ -197,6 +214,14 @@ export function obtenerEstadoTurno(turnoId: string) {
 /** Best effort — si falla, el timeout del backend cancela el turno igual. */
 export function cancelarTurno(turnoId: string) {
   return request<{ ok: boolean }>(`/cola/${turnoId}/cancelar`, { method: "POST" });
+}
+
+/** Canjea un vale por corte de energía: vuelve a la cola sin pagar de nuevo. */
+export function canjearCredito(codigo: string) {
+  return request<CanjeRespuesta>(`/cola/canjear`, {
+    method: "POST",
+    body: JSON.stringify({ codigo }),
+  });
 }
 
 /** El cliente confirma presencia cuando le toca la silla asignada. */

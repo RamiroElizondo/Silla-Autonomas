@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ColaService } from './cola.service';
+import { CanjearCreditoDto } from './dto/canjear-credito.dto';
 import { UnirseColaDto } from './dto/unirse-cola.dto';
 
 /** Endpoints públicos de la cola compartida entre todas las sillas del local. */
@@ -19,6 +20,17 @@ export class ColaController {
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   checkout(@Body() dto: UnirseColaDto) {
     return this.cola.unirse(dto.origin);
+  }
+
+  /**
+   * El cliente canjea un vale (corte de energía) y vuelve a la cola sin
+   * pagar. Límite bajo a propósito: el código es corto y no queremos que
+   * nadie lo adivine a fuerza de intentos.
+   */
+  @Post('canjear')
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  canjear(@Body() dto: CanjearCreditoDto) {
+    return this.cola.canjearCredito(dto.codigo);
   }
 
   /** Estado puntual de un turno (polling desde /cola/[turnoId]). */

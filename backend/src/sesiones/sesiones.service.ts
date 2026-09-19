@@ -5,8 +5,10 @@ import {
   NotFoundException,
   OnApplicationBootstrap,
 } from '@nestjs/common';
-import { Silla } from '@prisma/client';
+import { Credito, Silla } from '@prisma/client';
+import { CreditosService } from '../creditos/creditos.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { HeartbeatService } from '../shelly/heartbeat.service';
 import { ShellyService } from '../shelly/shelly.service';
 
 /** Minutos que se reserva la silla mientras el cliente paga. */
@@ -16,14 +18,50 @@ export const TIMEOUT_PAGO_MIN = 3;
  * Colchón del auto-off que se programa en la nube de Shelly (`toggle_after`)
  * por encima de la duración de la sesión. El apagado normal lo manda el
  * backend al vencer el timer; esto solo actúa si eso no llega a pasar.
+ *
+ * Ojo: ese timer vive DENTRO del equipo, así que un corte de luz lo borra.
+ * Por eso al reanudar tras un corte hay que volver a programarlo.
  */
 export const MARGEN_AUTO_OFF_SEG = 60;
+
+/**
+ * Corte de energía que se tolera dentro de una sesión en curso: se le
+ * devuelve al cliente el tiempo caído y sigue donde estaba. Si el corte dura
+ * más que esto, la sesión se cierra y se emite un crédito canjeable — no
+ * tiene sentido encender una silla vacía diez minutos después.
+ */
+export const UMBRAL_CORTE_SEG = 5 * 60;
+
+/**
+ * Segundos extra que se regalan por cada corte, además del tiempo caído: la
+ * masajeadora vuelve en standby y el cliente tiene que arrancar el programa
+ * de nuevo. Errar para el lado de regalar unos segundos sale barato y evita
+ * la discusión.
+ */
+export const GRACIA_REINICIO_SEG = 30;
+
+/**
+ * Si al momento del corte quedaba menos que esto, la sesión se da por
+ * cumplida en vez de emitir un crédito: un corte a los 9:50 de 10 minutos
+ * no es un turno perdido.
+ */
+export const RESTO_DESPRECIABLE_SEG = 60;
+
+/**
+ * Cuánto se espera a que vuelva la luz cuando el pago ya entró pero la silla
+ * nunca llegó a encenderse. Pasado esto el pago se convierte en crédito.
+ */
+export const MAX_ESPERA_ENERGIA_SEG = 10 * 60;
 
 /**
  * Máquina de estados de la silla:
  *
  *   LIBRE → PAGO_PENDIENTE → EN_USO → LIBRE
  *            (timeout 3min)   (timeout duracionMin)
+ *
+ * Con energía de por medio hay dos desvíos, que dispara EnergiaService:
+ *   - el pago entra pero el Shelly no responde  → sesión ESPERANDO_ENERGIA
+ *   - se corta la luz con la sesión andando     → sesión ACTIVA + interrumpidaEn
  *
  * Este servicio es el ÚNICO que transiciona estados y maneja timers.
  * Al reiniciar el servidor, reconstruye los timers desde la DB.
@@ -36,6 +74,8 @@ export class SesionesService implements OnApplicationBootstrap {
   constructor(
     private readonly prisma: PrismaService,
     private readonly shelly: ShellyService,
+    private readonly heartbeat: HeartbeatService,
+    private readonly creditos: CreditosService,
   ) {}
 
   // ── Recuperación tras reinicio ────────────────────────────────
@@ -46,6 +86,14 @@ export class SesionesService implements OnApplicationBootstrap {
       where: { estado: 'ACTIVA' },
     });
     for (const sesion of activas) {
+      if (sesion.interrumpidaEn) {
+        // Corte en curso cuando se reinició el backend: no tocamos nada acá,
+        // EnergiaService decide (reanudar o crédito) con el próximo heartbeat.
+        this.logger.warn(
+          `Sesión ${sesion.id} quedó con un corte en curso desde ${sesion.interrumpidaEn.toISOString()}`,
+        );
+        continue;
+      }
       const fin = sesion.finProgramado ?? new Date();
       if (fin <= new Date()) {
         this.logger.warn(`Sesión ${sesion.id} venció durante reinicio, apagando`);
@@ -55,6 +103,21 @@ export class SesionesService implements OnApplicationBootstrap {
           this.finalizarSesion(sesion.id, 'tiempo_cumplido'),
         );
         this.logger.log(`Sesión ${sesion.id} reprogramada hasta ${fin.toISOString()}`);
+      }
+    }
+
+    // Sesiones pagadas esperando que vuelva la luz
+    const esperandoEnergia = await this.prisma.sesion.findMany({
+      where: { estado: 'ESPERANDO_ENERGIA' },
+    });
+    for (const sesion of esperandoEnergia) {
+      const limite = new Date(
+        (sesion.pagadaEn ?? sesion.creadaEn).getTime() + MAX_ESPERA_ENERGIA_SEG * 1000,
+      );
+      if (limite <= new Date()) {
+        await this.vencerEsperaEnergia(sesion.id);
+      } else {
+        this.programar(sesion.id, limite, () => this.vencerEsperaEnergia(sesion.id));
       }
     }
 
@@ -84,6 +147,15 @@ export class SesionesService implements OnApplicationBootstrap {
    * clientes tocan "Pagar" al mismo tiempo.
    */
   async crearSesionPendiente(silla: Silla, externalReference: string) {
+    // Antes que nada: no cobramos lo que no podemos entregar. Si el Shelly
+    // no responde (corte en el local, WiFi caído), el cliente ni llega al
+    // checkout — es mucho más barato que devolverle la plata después.
+    if (this.heartbeat.estaOffline(silla.id)) {
+      throw new ConflictException(
+        'La silla está sin conexión en este momento. Probá en unos minutos.',
+      );
+    }
+
     const reservada = await this.prisma.silla.updateMany({
       where: { id: silla.id, estado: 'LIBRE' },
       data: { estado: 'PAGO_PENDIENTE' },
@@ -109,7 +181,14 @@ export class SesionesService implements OnApplicationBootstrap {
 
   // ── PAGO_PENDIENTE → EN_USO ───────────────────────────────────
 
-  /** Activa la sesión: enciende el relé y programa el apagado. */
+  /**
+   * Activa la sesión: enciende el relé y programa el apagado.
+   *
+   * Si el Shelly no responde NO se pierde el pago: la sesión pasa a
+   * ESPERANDO_ENERGIA y EnergiaService reintenta cada 15 s hasta que vuelva
+   * la luz (o hasta MAX_ESPERA_ENERGIA_SEG, y ahí se convierte en crédito).
+   * Es idempotente y se puede volver a llamar sobre una ESPERANDO_ENERGIA.
+   */
   async activarSesion(sesionId: string) {
     const sesion = await this.prisma.sesion.findUnique({
       where: { id: sesionId },
@@ -117,29 +196,44 @@ export class SesionesService implements OnApplicationBootstrap {
     });
     if (!sesion) throw new NotFoundException('Sesión no encontrada');
     if (sesion.estado === 'ACTIVA') return sesion; // idempotente
-    if (sesion.estado !== 'PENDIENTE') {
+    if (sesion.estado !== 'PENDIENTE' && sesion.estado !== 'ESPERANDO_ENERGIA') {
       throw new ConflictException(`Sesión en estado ${sesion.estado}, no activable`);
     }
 
-    this.cancelarTimer(sesionId); // cancela la expiración de pago
+    this.cancelarTimer(sesionId); // cancela la expiración de pago / de espera
 
-    const inicio = new Date();
-    const finProgramado = new Date(inicio.getTime() + sesion.duracionMin * 60_000);
+    // Para una sesión pagada, el reloj de "cuánto hace que cobramos sin
+    // entregar" arranca en el primer intento, no en el último.
+    const pagadaEn = sesion.esManual ? null : (sesion.pagadaEn ?? new Date());
 
     // Primero el relé: si Shelly falla, no cobramos tiempo que no corre.
-    // (El pago ya está hecho: el admin ve la alerta y puede activar manualmente.)
     // `toggle_after` deja programado el apagado en la nube de Shelly: si el
     // backend se cae antes de mandar el OFF, el relé se corta igual.
-    await this.shelly.setRele(
-      sesion.silla.deviceIdShelly,
-      true,
-      sesion.duracionMin * 60 + MARGEN_AUTO_OFF_SEG,
-    );
+    try {
+      await this.shelly.setRele(
+        sesion.silla.deviceIdShelly,
+        true,
+        sesion.duracionMin * 60 + MARGEN_AUTO_OFF_SEG,
+      );
+    } catch (e) {
+      return this.marcarEsperandoEnergia(sesion.id, sesion.silla.nombre, pagadaEn, e);
+    }
+
+    // El reloj del cliente arranca cuando el relé ya cerró, no cuando lo
+    // pedimos: la ida y vuelta con Shelly Cloud puede llevarse un segundo.
+    const inicio = new Date();
+    const finProgramado = new Date(inicio.getTime() + sesion.duracionMin * 60_000);
 
     const [actualizada] = await this.prisma.$transaction([
       this.prisma.sesion.update({
         where: { id: sesionId },
-        data: { estado: 'ACTIVA', inicio, finProgramado },
+        data: {
+          estado: 'ACTIVA',
+          inicio,
+          finProgramado,
+          pagadaEn: pagadaEn ?? undefined,
+          interrumpidaEn: null,
+        },
       }),
       this.prisma.silla.update({
         where: { id: sesion.sillaId },
@@ -154,6 +248,380 @@ export class SesionesService implements OnApplicationBootstrap {
       `Silla ${sesion.silla.nombre}: EN_USO hasta ${finProgramado.toISOString()}`,
     );
     return actualizada;
+  }
+
+  /**
+   * El pago entró pero el relé no contesta. La silla queda reservada (no
+   * vuelve a LIBRE) para que nadie más la pague, y el cliente ve en pantalla
+   * que estamos esperando que vuelva la luz.
+   */
+  private async marcarEsperandoEnergia(
+    sesionId: string,
+    nombreSilla: string,
+    pagadaEn: Date | null,
+    error: unknown,
+  ) {
+    const actualizada = await this.prisma.sesion.update({
+      where: { id: sesionId },
+      data: { estado: 'ESPERANDO_ENERGIA', pagadaEn: pagadaEn ?? undefined },
+    });
+
+    const desde = pagadaEn ?? actualizada.creadaEn;
+    const limite = new Date(desde.getTime() + MAX_ESPERA_ENERGIA_SEG * 1000);
+    this.programar(sesionId, limite, () => this.vencerEsperaEnergia(sesionId));
+
+    this.logger.error(
+      `Silla ${nombreSilla}: pago cobrado pero el relé no responde. ` +
+        `Sesión ${sesionId} en ESPERANDO_ENERGIA, se reintenta hasta ` +
+        `${limite.toISOString()}. ${error}`,
+    );
+    return actualizada;
+  }
+
+  /** Se acabó la paciencia: el pago no se pudo prestar, se convierte en crédito. */
+  async vencerEsperaEnergia(sesionId: string): Promise<Credito | null> {
+    this.cancelarTimer(sesionId);
+    const sesion = await this.prisma.sesion.findUnique({
+      where: { id: sesionId },
+      include: { silla: true },
+    });
+    if (!sesion || sesion.estado !== 'ESPERANDO_ENERGIA') return null;
+
+    const cerrada = await this.cerrarYLiberar(sesion.id, sesion.sillaId, {
+      estado: 'CANCELADA',
+      motivo: 'sin_energia_al_pagar',
+      estadoTurno: 'CANCELADA',
+      desde: ['ESPERANDO_ENERGIA'],
+    });
+    if (!cerrada) return null; // otra pasada ya la cerró
+
+    const credito = await this.emitirCreditoDe(sesion.id, {
+      duracionMin: sesion.duracionMin,
+      esManual: sesion.esManual,
+      motivo: 'sin_energia_al_pagar',
+      prioridadDesde: sesion.pagadaEn ?? sesion.creadaEn,
+    });
+    this.logger.warn(
+      `Sesión ${sesion.id} nunca pudo encender la silla ${sesion.silla.nombre}` +
+        (credito ? `, se emitió el crédito ${credito.codigo}` : ''),
+    );
+    return credito;
+  }
+
+  // ── Cortes de energía con la sesión andando ───────────────────
+
+  /**
+   * Marca que la sesión quedó a oscuras. Idempotente: si ya había un corte
+   * en curso no vuelve a contarlo.
+   *
+   * `detectadoEn` es el momento de la LECTURA que vio el equipo caído (no
+   * `now`), así el tiempo que se devuelve no depende de cada cuánto corra el
+   * chequeo.
+   */
+  async registrarCorte(sesionId: string, detectadoEn: Date): Promise<boolean> {
+    const res = await this.prisma.sesion.updateMany({
+      where: { id: sesionId, estado: 'ACTIVA', interrumpidaEn: null },
+      data: { interrumpidaEn: detectadoEn, cortes: { increment: 1 } },
+    });
+    if (res.count === 0) return false;
+    this.logger.warn(
+      `Sesión ${sesionId}: corte de energía detectado a las ${detectadoEn.toISOString()}`,
+    );
+    return true;
+  }
+
+  /**
+   * Volvió la luz dentro del umbral: se le devuelve al cliente el tiempo
+   * caído (más la gracia de reinicio) y la sesión sigue.
+   *
+   * Hay que volver a mandar el ON sí o sí: el Shelly rebootea con el relé
+   * abierto y perdió el `toggle_after` que tenía programado.
+   */
+  async reanudarTrasCorte(sesionId: string): Promise<boolean> {
+    const sesion = await this.prisma.sesion.findUnique({
+      where: { id: sesionId },
+      include: { silla: true },
+    });
+    if (
+      !sesion ||
+      sesion.estado !== 'ACTIVA' ||
+      !sesion.interrumpidaEn ||
+      !sesion.finProgramado
+    ) {
+      return false;
+    }
+
+    const caidoSeg = Math.max(
+      0,
+      Math.round((Date.now() - sesion.interrumpidaEn.getTime()) / 1000),
+    );
+    const devolver = caidoSeg + GRACIA_REINICIO_SEG;
+    const nuevoFin = new Date(sesion.finProgramado.getTime() + devolver * 1000);
+    const restanteSeg = Math.max(
+      1,
+      Math.round((nuevoFin.getTime() - Date.now()) / 1000),
+    );
+
+    // Si esto falla, dejamos `interrumpidaEn` como está: el próximo tick de
+    // EnergiaService reintenta y el tiempo caído sigue corriendo a favor del
+    // cliente.
+    await this.shelly.setRele(
+      sesion.silla.deviceIdShelly,
+      true,
+      restanteSeg + MARGEN_AUTO_OFF_SEG,
+    );
+
+    // Reclamo condicional: si otra pasada ya reanudó esta sesión, el update
+    // no matchea y salimos sin volver a devolverle el tiempo al cliente. El
+    // ON de arriba, en ese caso, fue redundante e inofensivo.
+    const reclamada = await this.prisma.sesion.updateMany({
+      where: { id: sesionId, estado: 'ACTIVA', interrumpidaEn: { not: null } },
+      data: {
+        interrumpidaEn: null,
+        finProgramado: nuevoFin,
+        segundosCompensados: { increment: devolver },
+      },
+    });
+    if (reclamada.count === 0) return false;
+
+    await this.prisma.silla.update({
+      where: { id: sesion.sillaId },
+      data: { finSesionActual: nuevoFin },
+    });
+
+    this.programar(sesionId, nuevoFin, () =>
+      this.finalizarSesion(sesionId, 'tiempo_cumplido'),
+    );
+    this.logger.log(
+      `Silla ${sesion.silla.nombre}: volvió la luz tras ${caidoSeg}s, ` +
+        `se devolvieron ${devolver}s (nuevo fin ${nuevoFin.toISOString()})`,
+    );
+    return true;
+  }
+
+  /**
+   * El corte pasó del umbral. No encendemos una silla que probablemente esté
+   * vacía: se cierra la sesión y se emite un crédito por el tiempo que le
+   * quedaba, canjeable escaneando cualquier QR.
+   */
+  async cerrarPorCorte(sesionId: string): Promise<Credito | null> {
+    this.cancelarTimer(sesionId);
+    const sesion = await this.prisma.sesion.findUnique({
+      where: { id: sesionId },
+      include: { silla: true },
+    });
+    if (!sesion || sesion.estado !== 'ACTIVA' || !sesion.interrumpidaEn) return null;
+
+    // Intento de OFF por las dudas: si el equipo sigue caído falla, y no
+    // importa — al volver arranca con el relé abierto igual.
+    try {
+      await this.shelly.setRele(sesion.silla.deviceIdShelly, false);
+    } catch (e) {
+      this.logger.warn(
+        `No se pudo apagar el relé de ${sesion.silla.nombre} tras el corte: ${e}`,
+      );
+    }
+
+    const restanteAlCorteSeg = sesion.finProgramado
+      ? Math.round((sesion.finProgramado.getTime() - sesion.interrumpidaEn.getTime()) / 1000)
+      : 0;
+
+    // Un corte sobre el final no es un turno perdido: se da por cumplido.
+    if (restanteAlCorteSeg <= RESTO_DESPRECIABLE_SEG) {
+      await this.cerrarYLiberar(sesion.id, sesion.sillaId, {
+        estado: 'COMPLETADA',
+        motivo: 'corte_sobre_el_final',
+        estadoTurno: 'COMPLETADA',
+        desde: ['ACTIVA'],
+      });
+      this.logger.log(
+        `Silla ${sesion.silla.nombre}: corte con ${restanteAlCorteSeg}s por delante, sesión dada por cumplida`,
+      );
+      return null;
+    }
+
+    const cerrada = await this.cerrarYLiberar(sesion.id, sesion.sillaId, {
+      estado: 'CANCELADA',
+      motivo: 'corte_de_energia',
+      estadoTurno: 'CANCELADA',
+      desde: ['ACTIVA'],
+    });
+    if (!cerrada) return null; // otra pasada ya la cerró y ya emitió el vale
+
+    const credito = await this.emitirCreditoDe(sesion.id, {
+      // El vale es por lo que le quedaba, no por un turno entero.
+      duracionMin: Math.min(
+        sesion.duracionMin,
+        Math.max(1, Math.ceil(restanteAlCorteSeg / 60)),
+      ),
+      esManual: sesion.esManual,
+      motivo: 'corte_de_energia',
+      prioridadDesde: sesion.pagadaEn ?? sesion.inicio ?? sesion.creadaEn,
+    });
+    this.logger.warn(
+      `Silla ${sesion.silla.nombre}: corte largo, sesión ${sesion.id} cerrada` +
+        (credito ? ` con crédito ${credito.codigo} por ${credito.duracionMin} min` : ''),
+    );
+    return credito;
+  }
+
+  /** Las cortesías del dueño no generan vales: no hay plata del cliente atrás. */
+  private async emitirCreditoDe(
+    sesionId: string,
+    params: {
+      duracionMin: number;
+      esManual: boolean;
+      motivo: string;
+      prioridadDesde: Date;
+    },
+  ): Promise<Credito | null> {
+    if (params.esManual) return null;
+    try {
+      return await this.creditos.emitir({
+        duracionMin: params.duracionMin,
+        motivo: params.motivo,
+        sesionOrigenId: sesionId,
+        prioridadDesde: params.prioridadDesde,
+      });
+    } catch (e) {
+      // La sesión ya quedó cerrada. Que no se pueda emitir el vale es un
+      // problema de plata del cliente: tiene que gritar en los logs para que
+      // el dueño se lo dé a mano desde el panel.
+      this.logger.error(
+        `NO SE PUDO EMITIR EL VALE de la sesión ${sesionId} (${params.motivo}, ` +
+          `${params.duracionMin} min): hay que compensar al cliente a mano. ${e}`,
+      );
+      return null;
+    }
+  }
+
+  // ── EN_USO → LIBRE ────────────────────────────────────────────
+
+  /** Corta la corriente y libera la silla. */
+  async finalizarSesion(sesionId: string, motivo: string) {
+    this.cancelarTimer(sesionId);
+
+    const sesion = await this.prisma.sesion.findUnique({
+      where: { id: sesionId },
+      include: { silla: true },
+    });
+    if (!sesion || sesion.estado !== 'ACTIVA') return;
+
+    // Corte en curso: el timer venció mientras la silla estaba a oscuras. No
+    // la damos por cumplida — EnergiaService resuelve cuando vuelva la luz
+    // (reanudar con el tiempo devuelto, o cerrar con crédito).
+    if (sesion.interrumpidaEn) {
+      this.logger.warn(
+        `Sesión ${sesionId} venció durante un corte de energía, cierre postergado`,
+      );
+      return;
+    }
+
+    try {
+      await this.shelly.setRele(sesion.silla.deviceIdShelly, false);
+    } catch (e) {
+      // Fallback: el ON dejó programado el auto-off en la nube (toggle_after),
+      // así que el relé se corta solo a los MARGEN_AUTO_OFF_SEG del vencimiento.
+      this.logger.error(
+        `No se pudo apagar el relé de ${sesion.silla.nombre}; actúa el auto-off del Shelly. ${e}`,
+      );
+    }
+
+    await this.cerrarYLiberar(sesionId, sesion.sillaId, {
+      estado: 'COMPLETADA',
+      motivo,
+      estadoTurno: 'COMPLETADA',
+      desde: ['ACTIVA'],
+    });
+    this.logger.log(`Silla ${sesion.silla.nombre}: LIBRE (${motivo})`);
+  }
+
+  /**
+   * Cierre común: sesión, silla y — si vino de la cola — el turno enlazado.
+   * Si el turno no se cierra, el cliente queda "EN_USO" para siempre y lo
+   * seguimos mandando a esa pantalla cada vez que escanea un QR.
+   */
+  private async cerrarYLiberar(
+    sesionId: string,
+    sillaId: string,
+    opciones: {
+      estado: 'COMPLETADA' | 'CANCELADA';
+      motivo: string;
+      estadoTurno: 'COMPLETADA' | 'CANCELADA';
+      desde: ('ACTIVA' | 'ESPERANDO_ENERGIA')[];
+    },
+  ): Promise<boolean> {
+    const ahora = new Date();
+
+    // El cierre se reclama primero y de forma condicional: es lo que hace que
+    // dos chequeos superpuestos no cierren la misma sesión dos veces (y, más
+    // importante, no emitan dos vales por el mismo corte).
+    const reclamada = await this.prisma.sesion.updateMany({
+      where: { id: sesionId, estado: { in: opciones.desde } },
+      data: {
+        estado: opciones.estado,
+        finReal: ahora,
+        motivoCierre: opciones.motivo,
+        interrumpidaEn: null,
+      },
+    });
+    if (reclamada.count === 0) return false;
+
+    await this.prisma.$transaction([
+      // La silla se libera solo si sigue tomada por ESTA sesión.
+      this.prisma.silla.updateMany({
+        where: { id: sillaId, estado: { in: ['EN_USO', 'PAGO_PENDIENTE', 'RESERVADA'] } },
+        data: { estado: 'LIBRE', finSesionActual: null },
+      }),
+      this.prisma.turno.updateMany({
+        where: { sesionId, estado: 'EN_USO' },
+        data: {
+          estado: opciones.estadoTurno,
+          finReal: ahora,
+          motivoCierre: opciones.motivo,
+        },
+      }),
+    ]);
+    return true;
+  }
+
+  /** Parada de emergencia: corta ya, marca la sesión como CANCELADA. */
+  async detenerEmergencia(sillaId: string) {
+    const silla = await this.prisma.silla.findUnique({ where: { id: sillaId } });
+    if (!silla) throw new NotFoundException('Silla no encontrada');
+
+    await this.shelly.setRele(silla.deviceIdShelly, false);
+
+    const activa = await this.prisma.sesion.findFirst({
+      where: { sillaId, estado: { in: ['ACTIVA', 'ESPERANDO_ENERGIA'] } },
+    });
+    if (activa) {
+      this.cancelarTimer(activa.id);
+      await this.prisma.sesion.update({
+        where: { id: activa.id },
+        data: {
+          estado: 'CANCELADA',
+          finReal: new Date(),
+          motivoCierre: 'parada_de_emergencia',
+          interrumpidaEn: null,
+        },
+      });
+      // Mismo motivo que en finalizarSesion: si venía de la cola, cerrarla.
+      await this.prisma.turno.updateMany({
+        where: { sesionId: activa.id, estado: 'EN_USO' },
+        data: {
+          estado: 'CANCELADA',
+          finReal: new Date(),
+          motivoCierre: 'parada_de_emergencia',
+        },
+      });
+    }
+    await this.prisma.silla.update({
+      where: { id: sillaId },
+      data: { estado: 'LIBRE', finSesionActual: null },
+    });
+    this.logger.warn(`Parada de emergencia en silla ${silla.nombre}`);
+    return { ok: true, sillaId, sesionCancelada: activa?.id ?? null };
   }
 
   /** Activación manual desde el panel admin (sin pago). */
@@ -176,92 +644,13 @@ export class SesionesService implements OnApplicationBootstrap {
     return this.activarSesion(sesion.id);
   }
 
-  // ── EN_USO → LIBRE ────────────────────────────────────────────
-
-  /** Corta la corriente y libera la silla. */
-  async finalizarSesion(sesionId: string, motivo: string) {
-    this.cancelarTimer(sesionId);
-
-    const sesion = await this.prisma.sesion.findUnique({
-      where: { id: sesionId },
-      include: { silla: true },
-    });
-    if (!sesion || sesion.estado !== 'ACTIVA') return;
-
-    try {
-      await this.shelly.setRele(sesion.silla.deviceIdShelly, false);
-    } catch (e) {
-      // Fallback: el ON dejó programado el auto-off en la nube (toggle_after),
-      // así que el relé se corta solo a los MARGEN_AUTO_OFF_SEG del vencimiento.
-      this.logger.error(
-        `No se pudo apagar el relé de ${sesion.silla.nombre}; actúa el auto-off del Shelly. ${e}`,
-      );
-    }
-
-    await this.prisma.$transaction([
-      this.prisma.sesion.update({
-        where: { id: sesionId },
-        data: { estado: 'COMPLETADA', finReal: new Date(), motivoCierre: motivo },
-      }),
-      this.prisma.silla.update({
-        where: { id: sesion.sillaId },
-        data: { estado: 'LIBRE', finSesionActual: null },
-      }),
-      // Si esta sesión vino de un Turno de la cola, cerrarlo también — si
-      // no, el cliente queda "EN_USO" para siempre y lo seguimos mandando
-      // a esta pantalla cada vez que escanea un QR.
-      this.prisma.turno.updateMany({
-        where: { sesionId, estado: 'EN_USO' },
-        data: { estado: 'COMPLETADA', finReal: new Date() },
-      }),
-    ]);
-    this.logger.log(`Silla ${sesion.silla.nombre}: LIBRE (${motivo})`);
-  }
-
-  /** Parada de emergencia: corta ya, marca la sesión como CANCELADA. */
-  async detenerEmergencia(sillaId: string) {
-    const silla = await this.prisma.silla.findUnique({ where: { id: sillaId } });
-    if (!silla) throw new NotFoundException('Silla no encontrada');
-
-    await this.shelly.setRele(silla.deviceIdShelly, false);
-
-    const activa = await this.prisma.sesion.findFirst({
-      where: { sillaId, estado: 'ACTIVA' },
-    });
-    if (activa) {
-      this.cancelarTimer(activa.id);
-      await this.prisma.sesion.update({
-        where: { id: activa.id },
-        data: {
-          estado: 'CANCELADA',
-          finReal: new Date(),
-          motivoCierre: 'parada_de_emergencia',
-        },
-      });
-      // Mismo motivo que en finalizarSesion: si venía de la cola, cerrarla.
-      await this.prisma.turno.updateMany({
-        where: { sesionId: activa.id, estado: 'EN_USO' },
-        data: {
-          estado: 'CANCELADA',
-          finReal: new Date(),
-          motivoCierre: 'parada_de_emergencia',
-        },
-      });
-    }
-    await this.prisma.silla.update({
-      where: { id: sillaId },
-      data: { estado: 'LIBRE', finSesionActual: null },
-    });
-    this.logger.warn(`Parada de emergencia en silla ${silla.nombre}`);
-    return { ok: true, sillaId, sesionCancelada: activa?.id ?? null };
-  }
-
   // ── PAGO_PENDIENTE → LIBRE (timeout) ──────────────────────────
 
   async expirarPagoPendiente(sesionId: string) {
     this.cancelarTimer(sesionId);
 
-    // Solo expira si sigue PENDIENTE (si el pago llegó justo, no toca nada)
+    // Solo expira si sigue PENDIENTE. Una sesión ya pagada que está esperando
+    // que vuelva la luz (ESPERANDO_ENERGIA) NO se toca acá: el pago ya entró.
     const expirada = await this.prisma.sesion.updateMany({
       where: { id: sesionId, estado: 'PENDIENTE' },
       data: {
@@ -282,9 +671,53 @@ export class SesionesService implements OnApplicationBootstrap {
     this.logger.log(`Sesión ${sesionId} expirada sin pago, silla liberada`);
   }
 
+  // ── Consulta pública ──────────────────────────────────────────
+
+  /**
+   * Estado de la sesión propia del cliente, para el polling de la pantalla
+   * de "tu masaje". La landing sondea el estado de la SILLA, que no alcanza
+   * acá: si un corte cierra la sesión, la silla vuelve a LIBRE y el cliente
+   * no se enteraría de que le quedó un crédito.
+   */
+  async estadoPublico(sesionId: string) {
+    const sesion = await this.prisma.sesion.findUnique({
+      where: { id: sesionId },
+      include: { silla: { select: { id: true, nombre: true } } },
+    });
+    if (!sesion) throw new NotFoundException('Sesión no encontrada');
+
+    const segundosRestantes =
+      sesion.estado === 'ACTIVA' && sesion.finProgramado && !sesion.interrumpidaEn
+        ? Math.max(0, Math.round((sesion.finProgramado.getTime() - Date.now()) / 1000))
+        : null;
+
+    const credito = await this.creditos.porSesion(sesionId);
+
+    return {
+      id: sesion.id,
+      estado: sesion.estado,
+      sillaId: sesion.silla.id,
+      sillaNombre: sesion.silla.nombre,
+      duracionMin: sesion.duracionMin,
+      segundosRestantes,
+      interrumpida: sesion.interrumpidaEn !== null,
+      cortes: sesion.cortes,
+      segundosCompensados: sesion.segundosCompensados,
+      motivoCierre: sesion.motivoCierre,
+      credito: credito
+        ? {
+            codigo: credito.codigo,
+            duracionMin: credito.duracionMin,
+            estado: credito.estado,
+            venceEn: credito.venceEn,
+          }
+        : null,
+    };
+  }
+
   // ── Timers ────────────────────────────────────────────────────
 
-  private programar(sesionId: string, cuando: Date, fn: () => Promise<void>) {
+  private programar(sesionId: string, cuando: Date, fn: () => Promise<unknown>) {
     this.cancelarTimer(sesionId);
     const ms = Math.max(0, cuando.getTime() - Date.now());
     this.timers.set(

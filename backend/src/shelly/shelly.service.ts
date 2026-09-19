@@ -13,6 +13,13 @@ export interface EstadoDispositivo {
   modelo: string | null;
   /** Generación reportada por Shelly Cloud (ej. "G3"), si está disponible. */
   generacion: string | null;
+  /**
+   * `switch:0.initial_state` del equipo: qué hace el relé cuando vuelve la
+   * luz ("off" | "on" | "restore_last" | "match_input"). Solo llega cuando se
+   * piden los settings. Para este sistema tiene que ser "off": el backend es
+   * el único que decide encender (ver EnergiaService).
+   */
+  initialState: string | null;
 }
 
 export interface DispositivoCloud {
@@ -24,7 +31,11 @@ export interface DispositivoCloud {
   potenciaW: number | null;
   temperaturaC: number | null;
   midePotencia: boolean;
+  initialState: string | null;
 }
+
+/** Valor que debe tener `switch:0.initial_state` para operar sin sorpresas. */
+export const INITIAL_STATE_ESPERADO = 'off';
 
 /** Envoltorio que devuelve POST /v2/devices/api/get por cada dispositivo. */
 interface DispositivoV2 {
@@ -78,6 +89,7 @@ function desconocido(): EstadoDispositivo {
     temperaturaC: null,
     modelo: null,
     generacion: null,
+    initialState: null,
   };
 }
 
@@ -216,10 +228,19 @@ export class ShellyService {
     );
   }
 
-  /** Consulta estado del dispositivo (online, relé, potencia si el modelo mide). */
-  async getEstado(deviceId: string): Promise<EstadoDispositivo> {
+  /**
+   * Consulta estado del dispositivo (online, relé, potencia si el modelo mide).
+   *
+   * Con `incluirSettings` trae además la configuración del equipo — es varios
+   * KB, así que solo se pide donde importa (alta de sillas y botón "Probar",
+   * que son los dos lugares donde se revisa `initial_state`).
+   */
+  async getEstado(
+    deviceId: string,
+    incluirSettings = false,
+  ): Promise<EstadoDispositivo> {
     try {
-      const [dev] = await this.consultar([deviceId]);
+      const [dev] = await this.consultar([deviceId], incluirSettings);
       return dev ? this.parsearDispositivo(dev) : desconocido();
     } catch (e) {
       this.logger.warn(`Sin respuesta de Shelly Cloud para ${deviceId}: ${describir(e)}`);
@@ -348,6 +369,7 @@ export class ShellyService {
       potenciaW: estado.potenciaW,
       temperaturaC: estado.temperaturaC,
       midePotencia: estado.potenciaW !== null,
+      initialState: estado.initialState,
     };
   }
 
@@ -358,6 +380,7 @@ export class ShellyService {
       ...this.parsearStatus(dev.status ?? {}, online),
       modelo: dev.code ?? null,
       generacion: this.parsearGeneracion(dev),
+      initialState: dev.settings?.['switch:0']?.initial_state ?? null,
     };
   }
 
@@ -377,7 +400,7 @@ export class ShellyService {
   private parsearStatus(
     ds: any,
     online: boolean,
-  ): Omit<EstadoDispositivo, 'modelo' | 'generacion'> {
+  ): Omit<EstadoDispositivo, 'modelo' | 'generacion' | 'initialState'> {
     // El flag online del envoltorio puede venir desactualizado; el status del
     // propio dispositivo trae "cloud.connected", que refleja la conexión real.
     const conectado =

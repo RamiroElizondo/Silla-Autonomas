@@ -6,12 +6,18 @@ import { FormSilla } from "@/components/FormSilla";
 import {
   activarManual,
   login,
+  obtenerCreditos,
   obtenerHistorial,
   obtenerSillasAdmin,
   pararEmergencia,
   probarSilla,
 } from "@/lib/api";
-import type { ResultadoPrueba, SesionAdmin, SillaAdmin } from "@/lib/tipos";
+import type {
+  CreditoAdmin,
+  ResultadoPrueba,
+  SesionAdmin,
+  SillaAdmin,
+} from "@/lib/tipos";
 
 const TOKEN_KEY = "admin_token";
 
@@ -114,6 +120,7 @@ function Dashboard({
 }) {
   const [sillas, setSillas] = useState<SillaAdmin[]>([]);
   const [sesiones, setSesiones] = useState<SesionAdmin[]>([]);
+  const [creditos, setCreditos] = useState<CreditoAdmin[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [accionando, setAccionando] = useState<string | null>(null);
   /** null = cerrado, "nueva" = alta, SillaAdmin = edición */
@@ -125,12 +132,14 @@ function Dashboard({
 
   const cargar = useCallback(async () => {
     try {
-      const [s, h] = await Promise.all([
+      const [s, h, c] = await Promise.all([
         obtenerSillasAdmin(token),
         obtenerHistorial(token, 50),
+        obtenerCreditos(token, 50),
       ]);
       setSillas(s);
       setSesiones(h.items);
+      setCreditos(c);
       setError(null);
     } catch (e) {
       const mensaje = e instanceof Error ? e.message : "Error de conexión";
@@ -276,7 +285,10 @@ function Dashboard({
               </div>
             </div>
             <div className="flex items-center gap-2.5">
-              <EstadoBadge estado={silla.estado} />
+              <EstadoBadge
+                estado={silla.estado}
+                sinEnergia={silla.salud ? !silla.salud.online : false}
+              />
               <button
                 onClick={() => probar(silla.id)}
                 disabled={pruebas[silla.id] === "cargando"}
@@ -324,6 +336,7 @@ function Dashboard({
               <th className="px-2 py-2.5 font-medium">Silla</th>
               <th className="px-2 py-2.5 font-medium">Monto</th>
               <th className="px-4 py-2.5 font-medium">Estado</th>
+              <th className="px-4 py-2.5 font-medium">Detalle</th>
             </tr>
           </thead>
           <tbody>
@@ -344,12 +357,59 @@ function Dashboard({
                 <td className="px-4 py-2.5">
                   <BadgeSesion estado={s.estado} />
                 </td>
+                <td className="px-4 py-2.5 text-tinta-muted">
+                  <DetalleSesion sesion={s} />
+                </td>
               </tr>
             ))}
             {sesiones.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-tinta-muted">
+                <td colSpan={5} className="px-4 py-6 text-center text-tinta-muted">
                   Sin operaciones todavía
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </section>
+
+      <h2 className="mt-8 text-[13px] font-medium text-tinta-suave">
+        Vales por cortes de energía
+      </h2>
+      <section className="mt-2.5 overflow-hidden rounded-xl border border-borde bg-marfil">
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr className="text-left text-tinta-muted">
+              <th className="px-4 py-2.5 font-medium">Código</th>
+              <th className="px-2 py-2.5 font-medium">Silla</th>
+              <th className="px-2 py-2.5 font-medium">Minutos</th>
+              <th className="px-2 py-2.5 font-medium">Emitido</th>
+              <th className="px-4 py-2.5 font-medium">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {creditos.map((c) => (
+              <tr key={c.id} className="border-t border-borde-suave">
+                <td className="px-4 py-2.5 font-medium tabular-nums">{c.codigo}</td>
+                <td className="px-2 py-2.5">{c.sesionOrigen?.silla?.nombre ?? "—"}</td>
+                <td className="px-2 py-2.5 tabular-nums">{c.duracionMin}</td>
+                <td className="px-2 py-2.5 text-tinta-suave">
+                  {new Date(c.creadoEn).toLocaleString("es-AR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </td>
+                <td className="px-4 py-2.5">
+                  <BadgeCredito credito={c} />
+                </td>
+              </tr>
+            ))}
+            {creditos.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-6 text-center text-tinta-muted">
+                  Ningún corte dejó vales pendientes
                 </td>
               </tr>
             )}
@@ -441,17 +501,25 @@ function ResultadoPruebaLinea({
     );
   }
   return (
-    <p className="mt-0.5 text-[13px] text-salvia-oscuro">
-      ✓ Online · relé{" "}
-      {resultado.releEncendido === true
-        ? "encendido"
-        : resultado.releEncendido === false
-          ? "apagado"
-          : "sin datos"}
-      {resultado.potenciaW != null && ` · ${Math.round(resultado.potenciaW)} W`}
-      {resultado.temperaturaC != null &&
-        ` · ${Math.round(resultado.temperaturaC)} °C`}
-    </p>
+    <>
+      <p className="mt-0.5 text-[13px] text-salvia-oscuro">
+        ✓ Online · relé{" "}
+        {resultado.releEncendido === true
+          ? "encendido"
+          : resultado.releEncendido === false
+            ? "apagado"
+            : "sin datos"}
+        {resultado.potenciaW != null && ` · ${Math.round(resultado.potenciaW)} W`}
+        {resultado.temperaturaC != null &&
+          ` · ${Math.round(resultado.temperaturaC)} °C`}
+        {resultado.initialState === "off" && " · al volver la luz queda apagada"}
+      </p>
+      {resultado.advertencia && (
+        <p className="mt-0.5 text-[13px] text-terracota-oscuro">
+          ⚠ {resultado.advertencia}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -464,11 +532,50 @@ function Metrica({ etiqueta, valor }: { etiqueta: string; valor: string }) {
   );
 }
 
+/** Motivos de cierre en castellano, para no mostrarle snake_case al dueño. */
+const MOTIVOS: Record<string, string> = {
+  tiempo_cumplido: "Terminó normal",
+  completada_tras_reinicio: "Cerrada al reiniciar",
+  pago_no_recibido: "No pagó",
+  parada_de_emergencia: "Parada de emergencia",
+  corte_de_energia: "Corte de luz",
+  corte_sobre_el_final: "Corte sobre el final",
+  sin_energia_al_pagar: "Sin luz al momento del pago",
+};
+
+function DetalleSesion({ sesion }: { sesion: SesionAdmin }) {
+  const partes: string[] = [];
+  if (sesion.motivoCierre) {
+    partes.push(MOTIVOS[sesion.motivoCierre] ?? sesion.motivoCierre);
+  }
+  if (sesion.cortes > 0) {
+    const min = Math.round(sesion.segundosCompensados / 60);
+    partes.push(
+      `${sesion.cortes} corte(s)` +
+        (sesion.segundosCompensados > 0 ? ` · +${min || "<1"} min devueltos` : ""),
+    );
+  }
+  return <>{partes.join(" · ") || "—"}</>;
+}
+
+function BadgeCredito({ credito }: { credito: CreditoAdmin }) {
+  const estilos: Record<CreditoAdmin["estado"], [string, string]> = {
+    DISPONIBLE: ["bg-terracota-claro text-terracota-oscuro", "Sin usar"],
+    CANJEADO: ["bg-salvia-claro text-salvia-oscuro", "Usado"],
+    VENCIDO: ["bg-pista text-tinta-muted", "Vencido"],
+  };
+  const [clases, texto] = estilos[credito.estado];
+  return (
+    <span className={`rounded-full px-2.5 py-1 text-xs ${clases}`}>{texto}</span>
+  );
+}
+
 function BadgeSesion({ estado }: { estado: SesionAdmin["estado"] }) {
   const estilos: Record<SesionAdmin["estado"], [string, string]> = {
     ACTIVA: ["bg-terracota-claro text-terracota-oscuro", "Activa"],
     COMPLETADA: ["bg-salvia-claro text-salvia-oscuro", "Completada"],
     PENDIENTE: ["bg-panal text-tinta-suave", "Pendiente"],
+    ESPERANDO_ENERGIA: ["bg-panal text-tinta-suave", "Esperando luz"],
     CANCELADA: ["bg-pista text-tinta-muted", "Cancelada"],
   };
   const [clases, texto] = estilos[estado];

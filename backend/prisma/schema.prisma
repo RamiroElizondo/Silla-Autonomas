@@ -17,9 +17,10 @@ enum EstadoSilla {
 
 enum EstadoSesion {
   PENDIENTE // preferencia creada, esperando pago (timeout 3 min)
+  ESPERANDO_ENERGIA // pago aprobado pero el Shelly estaba offline: no se pudo encender todavía
   ACTIVA // pagada o activada manualmente, silla encendida
   COMPLETADA // terminó su tiempo normalmente
-  CANCELADA // pago no llegó, parada de emergencia, etc.
+  CANCELADA // pago no llegó, parada de emergencia, corte de energía largo, etc.
 }
 
 enum EstadoPago {
@@ -35,6 +36,12 @@ enum EstadoTurno {
   EN_USO // confirmó y la silla está encendida (ver Sesion enlazada)
   COMPLETADA // terminó su tiempo normalmente
   CANCELADA // no pagó a tiempo, no confirmó a tiempo, etc.
+}
+
+enum EstadoCredito {
+  DISPONIBLE
+  CANJEADO
+  VENCIDO
 }
 
 model Silla {
@@ -64,12 +71,23 @@ model Sesion {
   duracionMin       Int          @map("duracion_min")
   esManual          Boolean      @default(false) @map("es_manual")
   creadaEn          DateTime     @default(now()) @map("creada_en")
+  // Momento en que el pago quedó aprobado. Puede ser anterior a `inicio` si
+  // la silla estaba sin energía cuando llegó el pago (ver ESPERANDO_ENERGIA).
+  pagadaEn          DateTime?    @map("pagada_en")
   inicio            DateTime?
   finProgramado     DateTime?    @map("fin_programado")
   finReal           DateTime?    @map("fin_real")
   motivoCierre      String?      @map("motivo_cierre")
+  // Corte de energía en curso: cuándo se detectó que el Shelly quedó offline.
+  // Null mientras la sesión corre normal. Ver EnergiaService.
+  interrumpidaEn      DateTime?  @map("interrumpida_en")
+  // Segundos ya devueltos al cliente por cortes de esta sesión, y cuántos
+  // cortes tuvo. Se muestran en el panel y en la pantalla del cliente.
+  segundosCompensados Int        @default(0) @map("segundos_compensados")
+  cortes              Int        @default(0)
   pagos             Pago[]
   turno             Turno?
+  creditos          Credito[]    @relation("CreditosDeSesion")
 
   @@index([sillaId, estado])
   @@map("sesiones")
@@ -110,6 +128,8 @@ model Turno {
   sesionId          String?     @unique @map("sesion_id")
   sesion            Sesion?     @relation(fields: [sesionId], references: [id])
   pagos             Pago[]
+  // Seteado cuando el turno nace del canje de un crédito en vez de un pago.
+  creditoOrigen     Credito?
   creadoEn          DateTime    @default(now()) @map("creado_en")
   pagadoEn          DateTime?   @map("pagado_en")
   asignadoEn        DateTime?   @map("asignado_en")
@@ -118,6 +138,37 @@ model Turno {
 
   @@index([estado, pagadoEn])
   @@map("turnos")
+}
+
+// Vale por un turno ya pagado que no se pudo prestar (corte de energía largo,
+// silla sin luz cuando llegó el pago). El cliente lo canjea escaneando
+// cualquier QR e ingresando el código: se convierte en un Turno de la cola
+// con monto 0, sin volver a pagar.
+model Credito {
+  id     String        @id @default(uuid())
+  codigo String        @unique // "LUZ-4821"
+  estado EstadoCredito @default(DISPONIBLE)
+
+  duracionMin Int    @map("duracion_min")
+  motivo      String // corte_de_energia | sin_energia_al_pagar
+
+  // Se usa como `pagadoEn` del turno que genera el canje: el cliente vuelve
+  // a la cola con la antigüedad que ya tenía, no al final de la fila por un
+  // corte que no provocó.
+  prioridadDesde DateTime @map("prioridad_desde")
+
+  sesionOrigenId String? @map("sesion_origen_id")
+  sesionOrigen   Sesion? @relation("CreditosDeSesion", fields: [sesionOrigenId], references: [id])
+
+  turnoGeneradoId String? @unique @map("turno_generado_id")
+  turnoGenerado   Turno?  @relation(fields: [turnoGeneradoId], references: [id])
+
+  creadoEn   DateTime  @default(now()) @map("creado_en")
+  venceEn    DateTime  @map("vence_en")
+  canjeadoEn DateTime? @map("canjeado_en")
+
+  @@index([estado, venceEn])
+  @@map("creditos")
 }
 
 model UsuarioAdmin {

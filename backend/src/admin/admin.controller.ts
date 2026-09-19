@@ -62,6 +62,12 @@ export class AdminController {
     return this.admin.sesiones(Math.min(take, 200), skip);
   }
 
+  /** Vales por cortes de energía: cuáles se emitieron y cuáles se usaron. */
+  @Get('creditos')
+  creditos(@Query('take', new DefaultValuePipe(50), ParseIntPipe) take: number) {
+    return this.admin.listarCreditos(Math.min(take, 200));
+  }
+
   @Get('metricas')
   metricas() {
     return this.admin.metricas();

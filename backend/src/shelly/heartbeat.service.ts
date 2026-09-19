@@ -25,6 +25,13 @@ export interface SaludSilla {
 export const TEMP_ALERTA_C = 80;
 
 /**
+ * Antigüedad máxima de una lectura para considerarla representativa del
+ * momento. Más vieja que esto significa que no estamos pudiendo hablar con
+ * Shelly Cloud, no que el local esté sin luz.
+ */
+export const FRESCURA_MAX_MS = 3 * 60_000;
+
+/**
  * Heartbeat: cada 30s consulta el estado real de cada Shelly.
  * Genera alertas si el dispositivo no responde o si el relé está ON
  * con consumo 0W (silla desenchufada/rota — requiere Plus 1PM para medir).
@@ -80,7 +87,12 @@ export class HeartbeatService {
       ) {
         alertas.push('Relé encendido pero consumo 0W: silla desenchufada o con falla');
       }
-      if (silla.estado !== 'EN_USO' && estado.releEncendido === true) {
+      if (
+        silla.estado !== 'EN_USO' &&
+        silla.estado !== 'PAGO_PENDIENTE' &&
+        silla.estado !== 'RESERVADA' &&
+        estado.releEncendido === true
+      ) {
         alertas.push('Relé encendido sin sesión activa');
       }
       if (estado.temperaturaC !== null && estado.temperaturaC >= TEMP_ALERTA_C) {
@@ -109,5 +121,23 @@ export class HeartbeatService {
 
   getSalud(): SaludSilla[] {
     return [...this.salud.values()];
+  }
+
+  getSaludDe(sillaId: string): SaludSilla | null {
+    return this.salud.get(sillaId) ?? null;
+  }
+
+  /**
+   * True solo si hay una lectura FRESCA que dice que el equipo no responde.
+   *
+   * Sin lectura (recién arrancó el backend) o con una lectura vieja (Shelly
+   * Cloud dejó de contestar) devuelve false a propósito: ante la duda no
+   * bloqueamos la venta por un problema que puede ser nuestro.
+   */
+  estaOffline(sillaId: string): boolean {
+    const s = this.salud.get(sillaId);
+    if (!s) return false;
+    if (Date.now() - s.ultimoChequeo.getTime() > FRESCURA_MAX_MS) return false;
+    return !s.online;
   }
 }
