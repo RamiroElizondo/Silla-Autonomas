@@ -78,13 +78,17 @@ export function obtenerEstadoSesion(sesionId: string) {
   return request<EstadoSesionPublico>(`/sesiones/${sesionId}/estado`);
 }
 
-export function iniciarCheckout(sillaId: string) {
+export function iniciarCheckout(sillaId: string, turnstileToken?: string | null) {
   // Le pasamos al backend el origin público actual (el dominio del túnel,
-  // o localhost en dev) para que arme los back_urls de Mercado Pago.
+  // o localhost en dev) para que arme los back_urls de Mercado Pago, y el
+  // token de Turnstile del widget del botón de pagar (ver TurnstileWidget).
   const origin = typeof window !== "undefined" ? window.location.origin : undefined;
   return request<CheckoutRespuesta>(`/sillas/${sillaId}/checkout`, {
     method: "POST",
-    body: JSON.stringify(origin ? { origin } : {}),
+    body: JSON.stringify({
+      ...(origin ? { origin } : {}),
+      ...(turnstileToken ? { turnstileToken } : {}),
+    }),
   });
 }
 
@@ -192,11 +196,14 @@ export function obtenerResumenCola() {
   return request<ColaResumen>(`/cola/estado`);
 }
 
-export function unirseCola() {
+export function unirseCola(turnstileToken?: string | null) {
   const origin = typeof window !== "undefined" ? window.location.origin : undefined;
   return request<TurnoCheckoutRespuesta>(`/cola/checkout`, {
     method: "POST",
-    body: JSON.stringify(origin ? { origin } : {}),
+    body: JSON.stringify({
+      ...(origin ? { origin } : {}),
+      ...(turnstileToken ? { turnstileToken } : {}),
+    }),
   });
 }
 

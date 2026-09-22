@@ -63,6 +63,86 @@ Al reiniciar el servidor, `SesionesService.onApplicationBootstrap()` reconstruye
 | POST | `/admin/sillas/:id/detener` | Parada de emergencia |
 | GET | `/admin/sillas/:id/probar` | Estado en vivo del Shelly de esa silla |
 
+## Seguridad: variables de entorno y límites (hardening ALTOS)
+
+Esta sección documenta las variables de entorno que introdujo el hardening de
+los 4 hallazgos ALTOS de la auditoría de seguridad. El detalle de cada una
+(por qué existe, cómo generarla) está en los comentarios de `.env.example`;
+acá va el resumen y qué pasa si falta.
+
+| Variable | Para qué | Sin ella en desarrollo | Sin ella en producción |
+|---|---|---|---|
+| `PROXY_SHARED_SECRET` | El proxy del frontend firma el header `x-client-ip` con este secreto compartido; sin la firma correcta, el rate limit no distingue clientes reales (todos entran con la IP del proxy) | El rate limit cuenta por IP del socket (probablemente compartida) — solo aviso | **El backend no arranca** |
+| `TURNSTILE_SECRET_KEY` | Verifica el token de Cloudflare Turnstile en `/sillas/:id/checkout` y `/cola/checkout` (evita bloquear sillas sin pagar) | La verificación queda deshabilitada (siempre pasa) — solo aviso | **El backend no arranca** |
+| `IP_HASH_SECRET` | HMAC-SHA256 para el `ip_hash` que se guarda en `Sesion`/`Turno` (nunca se guarda la IP en claro) | Se usa un secreto fijo de desarrollo — solo aviso | **El backend no arranca** |
+| `MP_WEBHOOK_SECRET` | Valida la firma `x-signature` del webhook de Mercado Pago | El webhook **rechaza todas** las notificaciones (falla cerrado) — salvo `MP_WEBHOOK_ALLOW_UNSIGNED=true` | **El backend no arranca** (sin excepción: `MP_WEBHOOK_ALLOW_UNSIGNED` no se respeta en producción) |
+| `MP_WEBHOOK_ALLOW_UNSIGNED` | Escape hatch SOLO de desarrollo: permite probar el flujo de pago sin configurar `MP_WEBHOOK_SECRET` | Con `true`, el webhook acepta notificaciones sin validar firma (aviso fuerte en el log) | Ignorada — no hay forma de saltear la firma en producción |
+| `MAX_PENDIENTES_POR_IP` (default `3`) | Tope de reservas `PENDIENTE`/`ESPERANDO_PAGO` simultáneas por IP antes de responder 429 | — | — |
+
+En todos los casos "el backend no arranca" significa que `verificarEntornoDeArranque()` (`src/common/verificar-entorno.ts`, llamada al inicio de `main.ts`) tira una excepción antes de levantar el servidor HTTP — falla rápido y explícito, en vez de arrancar en un estado silenciosamente inseguro.
+
+### Límites de rate limiting (por IP real, ver Hallazgo ALTO 1)
+
+Centralizados en `src/common/throttle.config.ts`. El tracker (`IpThrottlerGuard`) usa `x-client-ip` solo si `x-proxy-secret` coincide (comparación en tiempo constante); si no, cae a la IP del socket.
+
+| Límite | Valor | Dónde aplica |
+|---|---|---|
+| `LIMITE_GLOBAL` | 240 req/min | Default de `ThrottlerModule` para toda ruta sin `@Throttle` propio |
+| `LIMITE_ESTADO` | 240 req/min | `GET /sillas/:id/estado`, `GET /sesiones/:id/estado`, `GET /cola/estado`, `GET /cola/:id/estado` (polling) |
+| `LIMITE_CHECKOUT` | 6 req/min | `POST /sillas/:id/checkout`, `POST /cola/checkout` |
+| `LIMITE_LOGIN` | 5 req/min | `POST /admin/auth/login` |
+| `LIMITE_CONFIRMACION` | 10 req/min | `POST /cola/:id/cancelar`, `POST /cola/:id/confirmar`, confirmación de retorno de pago |
+| `LIMITE_WEBHOOK` | 300 req/min | `POST /webhooks/mercadopago` (alto porque la firma se valida antes de tocar la base — no hay costo real en dejar pasar más tráfico) |
+| `LIMITE_CANJEAR` | 5 req/min | `POST /cola/canjear` |
+
+**Storage en memoria, una sola instancia** (`ThrottlerStorageService` por defecto de `@nestjs/throttler`): no sobrevive un reinicio ni se comparte entre réplicas. Correcto para el despliegue actual (un solo proceso); si en algún momento se corre más de una instancia del backend, hay que migrar a un storage compartido (ej. Redis) o el límite deja de ser real entre instancias.
+
+Además del rate limit por request, `/cola/canjear` tiene un segundo freno específico contra fuerza bruta de códigos de vale (Hallazgo ALTO 3): `FallosCanjeService` bloquea una IP por 1 hora (`BLOQUEO_CANJE_MS`) tras `MAX_FALLOS_CANJE` (20) intentos fallidos en una ventana de 1 hora (`VENTANA_FALLOS_CANJE_MS`). Un canje exitoso limpia el historial de esa IP. También en memoria, una sola instancia, mismo límite que el storage del throttler de arriba.
+
+### Migración pendiente: `ip_hash`
+
+El hardening agregó la columna `ip_hash` (y su índice compuesto con `estado`)
+a `Sesion` y `Turno`. La migración ya está escrita a mano en
+`prisma/migrations/20260921230000_ip_hash_pendientes/migration.sql` (el
+entorno de desarrollo donde se hizo este hardening no tiene salida de red
+para bajar el motor de Prisma, así que no se pudo correr `prisma generate` ni
+`prisma migrate` ahí — hace falta correrlo donde sí haya red):
+
+```bash
+npx prisma generate       # regenera el cliente con el campo ipHash
+npx prisma migrate dev    # desarrollo: aplica la migración y valida el schema
+# o, en producción:
+npx prisma migrate deploy
+```
+
+Sin este paso, `npx tsc --noEmit` y `npm run build` fallan con 4 errores
+`TS2353: ... 'ipHash' does not exist ...` — es exactamente lo esperado hasta
+que se regenere el cliente; no hay ningún otro problema de tipos en el código
+nuevo.
+
+### Pruebas manuales sugeridas (además de la suite automática)
+
+```bash
+# Rate limit por IP real (Hallazgo 1): 2 IPs con secreto válido no se pisan
+for i in 1 2 3 4 5 6; do
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:3002/admin/auth/login \
+    -H "Content-Type: application/json" -H "x-client-ip: 10.0.0.1" -H "x-proxy-secret: $PROXY_SHARED_SECRET" \
+    -d '{"email":"x@x.com","password":"cualquiera"}'
+done
+# Sin x-proxy-secret, cambiar x-client-ip NO debería servir para evadir el límite.
+
+# Vales (Hallazgo 3): 21 intentos fallidos de canje desde la misma IP → el 21° es 429
+for i in $(seq 1 21); do
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:3002/cola/canjear \
+    -H "Content-Type: application/json" -H "x-client-ip: 10.0.0.2" -H "x-proxy-secret: $PROXY_SHARED_SECRET" \
+    -d '{"codigo":"LUZ-0000-0000"}'
+done
+
+# Webhook (Hallazgo 4): sin firma, tiene que rechazar con 403
+curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+  "http://localhost:3002/webhooks/mercadopago?type=payment&data.id=123"
+```
+
 ## Reglas críticas implementadas
 
 - El webhook **nunca confía en el body**: consulta `GET /v1/payments/{id}` con el Access Token.

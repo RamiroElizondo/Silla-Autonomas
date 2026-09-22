@@ -1,4 +1,6 @@
 import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
+import { LIMITE_ESTADO } from '../common/throttle.config';
 import { SesionesService } from './sesiones.service';
 
 /**
@@ -12,6 +14,7 @@ export class SesionesController {
   constructor(private readonly sesiones: SesionesService) {}
 
   @Get(':id/estado')
+  @Throttle({ default: LIMITE_ESTADO })
   estado(@Param('id', ParseUUIDPipe) id: string) {
     return this.sesiones.estadoPublico(id);
   }

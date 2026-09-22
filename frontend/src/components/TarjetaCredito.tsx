@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { canjearCredito } from "@/lib/api";
+import { ApiError, canjearCredito } from "@/lib/api";
 import type { CreditoPublico } from "@/lib/tipos";
 
 /**
@@ -33,7 +33,11 @@ export function TarjetaCredito({
       sessionStorage.setItem("turnoPendiente", turnoId);
       router.push(`/cola/${turnoId}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo reclamar el turno");
+      if (e instanceof ApiError && e.status === 429) {
+        setError("Demasiados intentos. Probá de nuevo más tarde.");
+      } else {
+        setError(e instanceof Error ? e.message : "No se pudo reclamar el turno");
+      }
       setCanjeando(false);
     }
   }
@@ -49,7 +53,7 @@ export function TarjetaCredito({
       <p className="mt-5 text-xs uppercase tracking-[0.12em] text-tinta-muted">
         Tu código
       </p>
-      <p className="mt-1 text-4xl font-medium tabular-nums">{credito.codigo}</p>
+      <p className="mt-1 text-3xl font-medium tabular-nums">{credito.codigo}</p>
 
       {yaUsado ? (
         <p className="mt-4 text-sm text-tinta-suave">

@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import {
   ConflictException,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -8,7 +11,12 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
+import { IpHashService } from '../common/ip-hash.service';
+import { contarReservasPendientesPorIp } from '../common/reservas-pendientes.util';
+import { MAX_PENDIENTES_POR_IP } from '../common/throttle.config';
+import { TurnstileService } from '../common/turnstile.service';
 import { CreditosService } from '../creditos/creditos.service';
+import { FallosCanjeService } from '../creditos/fallos-canje.service';
 import { MercadoPagoService } from '../mercadopago/mercadopago.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SesionesService } from '../sesiones/sesiones.service';
@@ -44,6 +52,9 @@ export class ColaService implements OnApplicationBootstrap {
     private readonly sesiones: SesionesService,
     private readonly heartbeat: HeartbeatService,
     private readonly creditos: CreditosService,
+    private readonly fallosCanje: FallosCanjeService,
+    private readonly turnstile: TurnstileService,
+    private readonly ipHash: IpHashService,
     config: ConfigService,
   ) {
     this.frontendUrlFallback = config.get<string>('FRONTEND_URL', '');
@@ -100,7 +111,11 @@ export class ColaService implements OnApplicationBootstrap {
 
   // ── Alta: cliente toca "Pagar y esperar mi turno" ─────────────
 
-  async unirse(origin?: string) {
+  async unirse(
+    origin: string | undefined,
+    turnstileToken: string | undefined,
+    ipCliente: string,
+  ) {
     // Todas las sillas del local cobran lo mismo hoy (asunción de v1): se
     // usa cualquier silla activa como referencia de precio/duración, ya que
     // al anotarse todavía no se sabe qué silla puntual va a tocar.
@@ -119,12 +134,30 @@ export class ColaService implements OnApplicationBootstrap {
     }
     const silla = conEnergia[0];
 
+    const verificacion = await this.turnstile.verificar(turnstileToken, ipCliente);
+    if (!verificacion.ok) {
+      throw new ForbiddenException(
+        'No pudimos verificar que sos una persona real. Volvé a intentar.',
+      );
+    }
+
+    const ipHash = this.ipHash.hash(ipCliente);
+    const pendientes = await contarReservasPendientesPorIp(this.prisma, ipHash);
+    if (pendientes >= MAX_PENDIENTES_POR_IP) {
+      throw new HttpException(
+        'Ya tenés varias reservas esperando pago. Esperá a que se confirmen ' +
+          'o venzan antes de intentar de nuevo.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
     const externalReference = `turno:${randomUUID()}`;
     const turno = await this.prisma.turno.create({
       data: {
         externalReference,
         monto: silla.precio,
         duracionMin: silla.duracionMin,
+        ipHash,
       },
     });
 
@@ -395,8 +428,17 @@ export class ColaService implements OnApplicationBootstrap {
    * preguntamos nada antes de emitir el vale: si se fue, simplemente no lo
    * canjea y el vale vence solo.
    */
-  async canjearCredito(codigoIngresado: string) {
-    const credito = await this.creditos.tomar(codigoIngresado);
+  async canjearCredito(codigoIngresado: string, ipCliente: string) {
+    this.fallosCanje.verificarNoBloqueado(ipCliente);
+
+    let credito;
+    try {
+      credito = await this.creditos.tomar(codigoIngresado);
+    } catch (e) {
+      this.fallosCanje.registrarFallo(ipCliente);
+      throw e;
+    }
+    this.fallosCanje.registrarExito(ipCliente);
 
     const codigo = await this.generarCodigoUnico();
     let turno;

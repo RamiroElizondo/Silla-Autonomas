@@ -1,4 +1,4 @@
-import { IsOptional, IsUrl } from 'class-validator';
+import { IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
 
 /**
  * `origin` es el origin público desde el que el cliente abrió la landing
@@ -11,4 +11,15 @@ export class CheckoutDto {
   @IsOptional()
   @IsUrl({ require_tld: false, require_protocol: true, protocols: ['http', 'https'] })
   origin?: string;
+
+  /**
+   * Token del widget de Cloudflare Turnstile del botón "Pagar" (Hallazgo
+   * ALTO 2). Se verifica en el backend antes de reservar la silla. Opcional
+   * a nivel DTO porque TurnstileService decide si es obligatorio según
+   * TURNSTILE_SECRET_KEY/NODE_ENV, no el validador del DTO.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  turnstileToken?: string;
 }

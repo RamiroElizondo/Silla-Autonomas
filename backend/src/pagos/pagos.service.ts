@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import {
   ConflictException,
+  ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -8,6 +11,10 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { ColaService } from '../cola/cola.service';
+import { IpHashService } from '../common/ip-hash.service';
+import { contarReservasPendientesPorIp } from '../common/reservas-pendientes.util';
+import { MAX_PENDIENTES_POR_IP } from '../common/throttle.config';
+import { TurnstileService } from '../common/turnstile.service';
 import {
   MercadoPagoService,
   type PagoMP,
@@ -29,6 +36,8 @@ export class PagosService {
     private readonly sesiones: SesionesService,
     private readonly sillas: SillasService,
     private readonly cola: ColaService,
+    private readonly turnstile: TurnstileService,
+    private readonly ipHash: IpHashService,
     config: ConfigService,
   ) {
     this.frontendUrlFallback = config.get<string>('FRONTEND_URL', '');
@@ -36,19 +45,43 @@ export class PagosService {
 
   /**
    * Flujo de checkout:
-   * 1. Reserva la silla (LIBRE → PAGO_PENDIENTE, con timeout de 3 min).
-   * 2. Crea la sesión con external_reference único.
-   * 3. Crea la Preferencia en MP y devuelve la URL de Checkout Pro.
+   * 1. Verifica Turnstile (falla cerrada) — sin esto, no se reserva nada.
+   * 2. Chequea el tope de reservas pendientes de esta IP (Hallazgo ALTO 2).
+   * 3. Reserva la silla (LIBRE → PAGO_PENDIENTE, con timeout de 3 min).
+   * 4. Crea la sesión con external_reference único.
+   * 5. Crea la Preferencia en MP y devuelve la URL de Checkout Pro.
    *
    * `origin` (opcional) es el origin público desde el que el cliente abrió
    * la landing y se usa para los back_urls. El Webhook se configura en el
    * panel de Mercado Pago para no sobreescribir la configuración firmada.
    */
-  async iniciarCheckout(sillaId: string, origin?: string) {
+  async iniciarCheckout(
+    sillaId: string,
+    origin: string | undefined,
+    turnstileToken: string | undefined,
+    ipCliente: string,
+  ) {
     const silla = await this.sillas.obtener(sillaId);
-    const externalReference = `${randomUUID()}|${sillaId}`;
 
-    const sesion = await this.sesiones.crearSesionPendiente(silla, externalReference);
+    const verificacion = await this.turnstile.verificar(turnstileToken, ipCliente);
+    if (!verificacion.ok) {
+      throw new ForbiddenException(
+        'No pudimos verificar que sos una persona real. Volvé a intentar.',
+      );
+    }
+
+    const ipHash = this.ipHash.hash(ipCliente);
+    const pendientes = await contarReservasPendientesPorIp(this.prisma, ipHash);
+    if (pendientes >= MAX_PENDIENTES_POR_IP) {
+      throw new HttpException(
+        'Ya tenés varias reservas esperando pago. Esperá a que se confirmen ' +
+          'o venzan antes de intentar de nuevo.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const externalReference = `${randomUUID()}|${sillaId}`;
+    const sesion = await this.sesiones.crearSesionPendiente(silla, externalReference, ipHash);
 
     const frontendOrigin = (origin ?? this.frontendUrlFallback).replace(/\/+$/, '');
 

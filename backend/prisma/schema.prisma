@@ -85,11 +85,16 @@ model Sesion {
   // cortes tuvo. Se muestran en el panel y en la pantalla del cliente.
   segundosCompensados Int        @default(0) @map("segundos_compensados")
   cortes              Int        @default(0)
+  // Hash HMAC-SHA256 de la IP real que creó la reserva (Hallazgo ALTO 2):
+  // nunca se guarda la IP en claro. Sirve para limitar cuántas reservas
+  // pendientes puede tener una misma IP a la vez.
+  ipHash              String?    @map("ip_hash")
   pagos             Pago[]
   turno             Turno?
   creditos          Credito[]    @relation("CreditosDeSesion")
 
   @@index([sillaId, estado])
+  @@index([ipHash, estado])
   @@map("sesiones")
 }
 
@@ -123,6 +128,8 @@ model Turno {
   externalReference String      @unique @map("external_reference")
   monto             Decimal     @db.Decimal(10, 2)
   duracionMin       Int         @map("duracion_min")
+  // Mismo hash que Sesion.ipHash, mismo motivo (Hallazgo ALTO 2).
+  ipHash            String?     @map("ip_hash")
   sillaId           String?     @map("silla_id")
   silla             Silla?      @relation(fields: [sillaId], references: [id])
   sesionId          String?     @unique @map("sesion_id")
@@ -137,6 +144,7 @@ model Turno {
   motivoCierre      String?     @map("motivo_cierre")
 
   @@index([estado, pagadoEn])
+  @@index([ipHash, estado])
   @@map("turnos")
 }
 

@@ -11,6 +11,37 @@ export interface PagoMP {
   [k: string]: unknown;
 }
 
+/** Firma ya separada y validada en forma (no en contenido: eso lo hace HMAC). */
+interface XSignatureParseada {
+  ts: string;
+  v1: string;
+}
+
+/**
+ * Parsea el header `x-signature` de Mercado Pago de forma estricta: rechaza
+ * (devolviendo `null`, sin tirar excepción) cualquier cosa que no sea
+ * exactamente lo que MP manda — un campo sin "=", un campo vacío, una clave
+ * repetida, o un "v1" que no sea hex de 64 caracteres (lo que produce
+ * cualquier HMAC-SHA256 en hex). No se valida ventana de tiempo sobre "ts":
+ * MP reintenta webhooks fallidos durante horas, así que un ts viejo es
+ * normal y no dice nada sobre si la firma es válida.
+ */
+function parsearXSignature(header: string): XSignatureParseada | null {
+  const partes: Record<string, string> = {};
+  for (const segmento of header.split(',')) {
+    const idx = segmento.indexOf('=');
+    if (idx === -1) return null; // sin "=": formato inesperado
+    const clave = segmento.slice(0, idx).trim();
+    const valor = segmento.slice(idx + 1).trim();
+    if (!clave || !valor) return null; // campo vacío
+    if (clave in partes) return null; // clave duplicada
+    partes[clave] = valor;
+  }
+  if (!partes.ts || !partes.v1) return null;
+  if (!/^[0-9a-f]{64}$/i.test(partes.v1)) return null; // HMAC-SHA256 en hex: siempre 64 chars
+  return { ts: partes.ts, v1: partes.v1 };
+}
+
 /**
  * Cliente de la API de Mercado Pago (Checkout Pro + Payments), vía SDK
  * oficial. Vive en su propio módulo porque lo usan tanto el pago directo a
@@ -20,12 +51,41 @@ export interface PagoMP {
 export class MercadoPagoService {
   private readonly logger = new Logger(MercadoPagoService.name);
   private readonly webhookSecret: string;
+  /**
+   * Escape hatch SOLO para desarrollo local sin secreto configurado (Hallazgo
+   * ALTO 4): antes, sin `MP_WEBHOOK_SECRET` el webhook fallaba "abierto"
+   * (aceptaba cualquier request sin firma) en cualquier entorno, incluida
+   * producción por error de configuración. Ahora falla CERRADO por defecto;
+   * esta bandera es la única forma de recuperar el comportamiento viejo, y
+   * `verificarEntornoDeArranque` aborta el arranque si se llega a producción
+   * sin secreto (con o sin esta bandera).
+   */
+  private readonly permitirSinFirma: boolean;
   private readonly preference: Preference;
   private readonly payment: Payment;
 
   constructor(config: ConfigService) {
     const accessToken = config.get<string>('MP_ACCESS_TOKEN', '');
     this.webhookSecret = config.get<string>('MP_WEBHOOK_SECRET', '');
+    this.permitirSinFirma =
+      !this.webhookSecret &&
+      config.get<string>('MP_WEBHOOK_ALLOW_UNSIGNED', '') === 'true';
+
+    if (!this.webhookSecret) {
+      if (this.permitirSinFirma) {
+        this.logger.warn(
+          'MP_WEBHOOK_ALLOW_UNSIGNED=true: el webhook de Mercado Pago acepta ' +
+            'notificaciones SIN validar firma. Es un agujero de seguridad — ' +
+            'NUNCA usar esta bandera fuera de desarrollo local.',
+        );
+      } else {
+        this.logger.warn(
+          'MP_WEBHOOK_SECRET no configurado: el webhook de Mercado Pago va a ' +
+            'RECHAZAR todas las notificaciones (falla cerrado). Configurá el ' +
+            'secreto, o (solo en desarrollo) MP_WEBHOOK_ALLOW_UNSIGNED=true.',
+        );
+      }
+    }
 
     const client = new MercadoPagoConfig({ accessToken });
     this.preference = new Preference(client);
@@ -101,6 +161,11 @@ export class MercadoPagoService {
   /**
    * Valida la firma HMAC del webhook (header x-signature).
    * Manifest según docs de MP: "id:{data.id};request-id:{x-request-id};ts:{ts};"
+   *
+   * Falla CERRADO (Hallazgo ALTO 4): sin secreto configurado, rechaza todo
+   * salvo que se haya optado explícitamente por `permitirSinFirma` (ver
+   * constructor). `verificarEntornoDeArranque` ya garantiza que esto nunca
+   * pasa en producción sin que alguien lo haya pedido a propósito.
    */
   validarFirma(params: {
     xSignature: string | undefined;
@@ -108,26 +173,23 @@ export class MercadoPagoService {
     dataId: string | undefined;
   }): boolean {
     if (!this.webhookSecret) {
-      this.logger.warn('MP_WEBHOOK_SECRET no configurado: firma NO validada');
-      return true; // permitir en desarrollo; en producción configurar SIEMPRE
+      return this.permitirSinFirma;
     }
     if (!params.xSignature) {
       this.logger.warn('Webhook sin header x-signature');
       return false;
     }
 
-    const partes = Object.fromEntries(
-      params.xSignature.split(',').map((p) => p.trim().split('=', 2)),
-    ) as { ts?: string; v1?: string };
-    if (!partes.ts || !partes.v1) {
-      this.logger.warn(`x-signature con formato inesperado: "${params.xSignature}"`);
+    const parseada = parsearXSignature(params.xSignature);
+    if (!parseada) {
+      this.logger.warn('Webhook con x-signature de formato inválido');
       return false;
     }
 
     let manifest = '';
     if (params.dataId) manifest += `id:${params.dataId.toLowerCase()};`;
     if (params.xRequestId) manifest += `request-id:${params.xRequestId};`;
-    manifest += `ts:${partes.ts};`;
+    manifest += `ts:${parseada.ts};`;
 
     const esperado = createHmac('sha256', this.webhookSecret)
       .update(manifest)
@@ -136,17 +198,19 @@ export class MercadoPagoService {
     let coincide: boolean;
     try {
       coincide =
-        esperado.length === partes.v1.length &&
-        timingSafeEqual(Buffer.from(esperado), Buffer.from(partes.v1));
+        esperado.length === parseada.v1.length &&
+        timingSafeEqual(Buffer.from(esperado), Buffer.from(parseada.v1));
     } catch {
       coincide = false;
     }
 
     if (!coincide) {
-      // DEBUG temporal — sacar una vez que ande.
+      // Nunca loguear el HMAC esperado/recibido ni la longitud del secreto:
+      // eso es exactamente la información que un atacante necesitaría para
+      // confirmar que va por buen camino forzando la firma a fuerza bruta.
       this.logger.warn(
-        `Firma no coincide. manifest="${manifest}" secretLen=${this.webhookSecret.length} ` +
-          `esperado=${esperado} recibido=${partes.v1}`,
+        `Firma de webhook no coincide (data.id=${params.dataId ?? 'sin dato'}, ` +
+          `x-request-id=${params.xRequestId ?? 'sin dato'})`,
       );
     }
 

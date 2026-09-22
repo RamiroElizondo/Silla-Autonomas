@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { canjearCredito } from "@/lib/api";
+import { ApiError, canjearCredito } from "@/lib/api";
 
 /**
  * Entrada manual del código de un vale. Es la red de seguridad del cliente
@@ -26,7 +26,11 @@ export function FormCodigoCredito() {
       sessionStorage.setItem("turnoPendiente", turnoId);
       router.push(`/cola/${turnoId}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo canjear el código");
+      if (err instanceof ApiError && err.status === 429) {
+        setError("Demasiados intentos. Probá de nuevo más tarde.");
+      } else {
+        setError(err instanceof Error ? err.message : "No se pudo canjear el código");
+      }
       setCanjeando(false);
     }
   }
@@ -51,7 +55,8 @@ export function FormCodigoCredito() {
         id="codigo-credito"
         value={codigo}
         onChange={(e) => setCodigo(e.target.value)}
-        placeholder="LUZ-0000"
+        placeholder="LUZ-XXXX-XXXX"
+        maxLength={20}
         autoCapitalize="characters"
         autoComplete="off"
         className="mt-2 w-full rounded-xl border border-borde bg-white px-4 py-3 text-center text-xl font-medium uppercase tabular-nums outline-none focus:border-terracota"

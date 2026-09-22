@@ -1,4 +1,4 @@
-import { IsOptional, IsUrl } from 'class-validator';
+import { IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
 
 /**
  * `origin` es el origin público desde el que el cliente abrió la landing
@@ -9,4 +9,10 @@ export class UnirseColaDto {
   @IsOptional()
   @IsUrl({ require_tld: false, require_protocol: true, protocols: ['http', 'https'] })
   origin?: string;
+
+  /** Token de Cloudflare Turnstile del botón de pagar. Ver CheckoutDto. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2048)
+  turnstileToken?: string;
 }

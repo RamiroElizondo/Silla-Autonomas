@@ -146,7 +146,11 @@ export class SesionesService implements OnApplicationBootstrap {
    * Update condicional (estado: LIBRE) evita race condition si dos
    * clientes tocan "Pagar" al mismo tiempo.
    */
-  async crearSesionPendiente(silla: Silla, externalReference: string) {
+  async crearSesionPendiente(
+    silla: Silla,
+    externalReference: string,
+    ipHash: string | null = null,
+  ) {
     // Antes que nada: no cobramos lo que no podemos entregar. Si el Shelly
     // no responde (corte en el local, WiFi caído), el cliente ni llega al
     // checkout — es mucho más barato que devolverle la plata después.
@@ -170,6 +174,7 @@ export class SesionesService implements OnApplicationBootstrap {
         externalReference,
         monto: silla.precio,
         duracionMin: silla.duracionMin,
+        ipHash: ipHash ?? undefined,
       },
     });
 

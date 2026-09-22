@@ -1,5 +1,8 @@
-import { Body, Controller, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Param, ParseUUIDPipe, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import type { Request } from 'express';
+import { resolverIpConfiable } from '../common/client-ip.util';
+import { LIMITE_CHECKOUT, LIMITE_CONFIRMACION } from '../common/throttle.config';
 import { CancelarPagoDto } from './dto/cancelar-pago.dto';
 import { CheckoutDto } from './dto/checkout.dto';
 import { PagosService } from './pagos.service';
@@ -13,9 +16,14 @@ export class PagosController {
    * Devuelve { sesionId, initPoint } para redirigir a Checkout Pro.
    */
   @Post(':id/checkout')
-  @Throttle({ default: { ttl: 60_000, limit: 5 } })
-  checkout(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CheckoutDto) {
-    return this.pagos.iniciarCheckout(id, dto.origin);
+  @Throttle({ default: LIMITE_CHECKOUT })
+  checkout(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CheckoutDto,
+    @Req() req: Request,
+  ) {
+    const ipCliente = resolverIpConfiable(req);
+    return this.pagos.iniciarCheckout(id, dto.origin, dto.turnstileToken, ipCliente);
   }
 
   /**
@@ -25,7 +33,7 @@ export class PagosController {
    * no hace nada — es idempotente.
    */
   @Post(':id/cancelar-pago')
-  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @Throttle({ default: LIMITE_CONFIRMACION })
   cancelarPago(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CancelarPagoDto) {
     return this.pagos.cancelarCheckout(id, dto.sesionId);
   }

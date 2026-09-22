@@ -1,5 +1,13 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import type { Request } from 'express';
+import { resolverIpConfiable } from '../common/client-ip.util';
+import {
+  LIMITE_CANJEAR,
+  LIMITE_CHECKOUT,
+  LIMITE_CONFIRMACION,
+  LIMITE_ESTADO,
+} from '../common/throttle.config';
 import { ColaService } from './cola.service';
 import { CanjearCreditoDto } from './dto/canjear-credito.dto';
 import { UnirseColaDto } from './dto/unirse-cola.dto';
@@ -11,37 +19,41 @@ export class ColaController {
 
   /** Resumen para mostrar en la landing de una silla ocupada. */
   @Get('estado')
+  @Throttle({ default: LIMITE_ESTADO })
   estadoResumen() {
     return this.cola.estadoResumen();
   }
 
   /** El cliente toca "Pagar y esperar mi turno". */
   @Post('checkout')
-  @Throttle({ default: { ttl: 60_000, limit: 5 } })
-  checkout(@Body() dto: UnirseColaDto) {
-    return this.cola.unirse(dto.origin);
+  @Throttle({ default: LIMITE_CHECKOUT })
+  checkout(@Body() dto: UnirseColaDto, @Req() req: Request) {
+    const ipCliente = resolverIpConfiable(req);
+    return this.cola.unirse(dto.origin, dto.turnstileToken, ipCliente);
   }
 
   /**
    * El cliente canjea un vale (corte de energía) y vuelve a la cola sin
    * pagar. Límite bajo a propósito: el código es corto y no queremos que
-   * nadie lo adivine a fuerza de intentos.
+   * nadie lo adivine a fuerza de intentos (ver también FallosCanjeService).
    */
   @Post('canjear')
-  @Throttle({ default: { ttl: 60_000, limit: 5 } })
-  canjear(@Body() dto: CanjearCreditoDto) {
-    return this.cola.canjearCredito(dto.codigo);
+  @Throttle({ default: LIMITE_CANJEAR })
+  canjear(@Body() dto: CanjearCreditoDto, @Req() req: Request) {
+    const ipCliente = resolverIpConfiable(req);
+    return this.cola.canjearCredito(dto.codigo, ipCliente);
   }
 
   /** Estado puntual de un turno (polling desde /cola/[turnoId]). */
   @Get(':id/estado')
+  @Throttle({ default: LIMITE_ESTADO })
   estadoTurno(@Param('id', ParseUUIDPipe) id: string) {
     return this.cola.estadoTurno(id);
   }
 
   /** El cliente cancela/abandona el checkout de MP y vuelve a `/cola/:id/fracaso`. */
   @Post(':id/cancelar')
-  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @Throttle({ default: LIMITE_CONFIRMACION })
   async cancelar(@Param('id', ParseUUIDPipe) id: string) {
     await this.cola.expirarEsperaPago(id);
     return { ok: true };
@@ -49,7 +61,7 @@ export class ColaController {
 
   /** El cliente confirma presencia cuando le toca la silla asignada. */
   @Post(':id/confirmar')
-  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @Throttle({ default: LIMITE_CONFIRMACION })
   confirmar(@Param('id', ParseUUIDPipe) id: string) {
     return this.cola.confirmar(id);
   }

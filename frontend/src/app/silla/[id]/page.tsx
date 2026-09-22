@@ -5,9 +5,12 @@ import { useRouter } from "next/navigation";
 import { EstadoBadge } from "@/components/EstadoBadge";
 import { BarraProgreso } from "@/components/BarraProgreso";
 import { FormCodigoCredito } from "@/components/FormCodigoCredito";
+import { TurnstileWidget } from "@/components/TurnstileWidget";
 import { formatearTimer, useEstadoSilla } from "@/hooks/useEstadoSilla";
 import { iniciarCheckout, obtenerResumenCola, unirseCola } from "@/lib/api";
 import type { ColaResumen } from "@/lib/tipos";
+
+const TURNSTILE_REQUERIDO = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 
 export default function LandingSilla({
   params,
@@ -23,6 +26,7 @@ export default function LandingSilla({
   const [cola, setCola] = useState<ColaResumen | null>(null);
   const [uniendose, setUniendose] = useState(false);
   const [errorCola, setErrorCola] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   // Si ya tenés un turno en curso (pagaste y estás esperando/confirmando),
   // te mandamos directo ahí en vez de mostrar esta vista genérica — pasa
@@ -70,7 +74,7 @@ export default function LandingSilla({
     setPagando(true);
     setErrorPago(null);
     try {
-      const { sesionId, initPoint } = await iniciarCheckout(id);
+      const { sesionId, initPoint } = await iniciarCheckout(id, turnstileToken);
       // Lo guardamos para que /fracaso pueda liberar la silla al toque si
       // el cliente cancela, y para que /exito pueda seguir ESTA sesión
       // (cortes de luz, vales) y no el estado general de la silla.
@@ -86,7 +90,7 @@ export default function LandingSilla({
     setUniendose(true);
     setErrorCola(null);
     try {
-      const { turnoId, initPoint } = await unirseCola();
+      const { turnoId, initPoint } = await unirseCola(turnstileToken);
       sessionStorage.setItem(`turnoPendiente`, turnoId);
       window.location.href = initPoint;
     } catch (e) {
@@ -162,9 +166,10 @@ export default function LandingSilla({
               {estado.duracionMin} minutos
             </p>
           </div>
+          <TurnstileWidget onToken={setTurnstileToken} />
           <button
             onClick={pagar}
-            disabled={pagando}
+            disabled={pagando || (TURNSTILE_REQUERIDO && !turnstileToken)}
             className="mt-4 w-full rounded-xl bg-terracota py-4 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60"
           >
             {pagando ? "Conectando con Mercado Pago…" : "Pagar y empezar"}
@@ -230,9 +235,10 @@ export default function LandingSilla({
                 : "Te anotamos y te avisamos apenas se libere una silla."}
             </p>
           </div>
+          <TurnstileWidget onToken={setTurnstileToken} />
           <button
             onClick={unirmeACola}
-            disabled={uniendose}
+            disabled={uniendose || (TURNSTILE_REQUERIDO && !turnstileToken)}
             className="mt-4 w-full rounded-xl bg-terracota py-4 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60"
           >
             {uniendose ? "Conectando con Mercado Pago…" : "Pagar y esperar mi turno"}

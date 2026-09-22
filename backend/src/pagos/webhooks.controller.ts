@@ -8,7 +8,8 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
-import { SkipThrottle } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
+import { LIMITE_WEBHOOK } from '../common/throttle.config';
 import { MercadoPagoService } from '../mercadopago/mercadopago.service';
 import { PagosService } from './pagos.service';
 
@@ -25,10 +26,15 @@ export class WebhooksController {
    * Webhook de Mercado Pago.
    * Validación doble: firma HMAC + consulta a la API de MP (en PagosService).
    * Responde 200 rápido; MP reintenta si devolvemos error.
+   *
+   * Límite alto en vez de sin límite (@SkipThrottle): la firma se valida
+   * ANTES de tocar la base, así que no hay costo real en dejar pasar más
+   * tráfico acá, y un límite (aunque holgado) evita que este único endpoint
+   * público sin autenticación quede totalmente abierto a cualquier volumen.
    */
   @Post('mercadopago')
   @HttpCode(200)
-  @SkipThrottle()
+  @Throttle({ default: LIMITE_WEBHOOK })
   async mercadopago(
     @Query('data.id') dataIdQuery: string | undefined,
     @Query('type') typeQuery: string | undefined,

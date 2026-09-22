@@ -1,5 +1,6 @@
 import { Body, Controller, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import { LIMITE_CONFIRMACION } from '../common/throttle.config';
 import { ConfirmarRetornoDto } from './dto/confirmar-retorno.dto';
 import { PagosService } from './pagos.service';
 
@@ -12,7 +13,7 @@ export class RetornosController {
   constructor(private readonly pagos: PagosService) {}
 
   @Post('sillas/:id/confirmar-pago')
-  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @Throttle({ default: LIMITE_CONFIRMACION })
   confirmarSilla(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ConfirmarRetornoDto,
@@ -21,7 +22,7 @@ export class RetornosController {
   }
 
   @Post('cola/:id/confirmar-pago')
-  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @Throttle({ default: LIMITE_CONFIRMACION })
   confirmarTurno(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ConfirmarRetornoDto,
