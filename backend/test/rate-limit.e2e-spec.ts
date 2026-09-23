@@ -63,25 +63,30 @@ describe('Rate limit por IP real (Hallazgo ALTO 1)', () => {
     await app.close();
   });
 
-  function intentoLogin(headers: Record<string, string>) {
+  // Un email DISTINTO por test (y por debajo de las 10 fallas de
+  // LoginBloqueoService, Bloque A): estos tests prueban el throttle por IP,
+  // no el bloqueo por cuenta, así que no deben pisarse entre sí ni con ese
+  // otro mecanismo.
+  function intentoLogin(headers: Record<string, string>, email: string) {
     return request(app.getHttpServer())
       .post('/admin/auth/login')
       .set(headers)
-      .send({ email: 'x@ejemplo.com', password: 'cualquiera123' });
+      .send({ email, password: 'cualquiera123' });
   }
 
   it('dos x-client-ip distintos con secreto válido tienen contadores independientes', async () => {
     const headersA = { 'x-client-ip': '10.10.10.1', 'x-proxy-secret': SECRETO };
     const headersB = { 'x-client-ip': '10.10.10.2', 'x-proxy-secret': SECRETO };
+    const email = 'ip-independientes@ejemplo.com';
 
     for (let i = 0; i < 5; i++) {
-      const r = await intentoLogin(headersA);
+      const r = await intentoLogin(headersA, email);
       expect(r.status).not.toBe(429); // credenciales inválidas -> 401, no 429
     }
-    const sextaA = await intentoLogin(headersA);
+    const sextaA = await intentoLogin(headersA, email);
     expect(sextaA.status).toBe(429); // A ya gastó su cupo
 
-    const primeraB = await intentoLogin(headersB);
+    const primeraB = await intentoLogin(headersB, email);
     expect(primeraB.status).not.toBe(429); // B tiene su propio contador
   });
 
@@ -89,21 +94,23 @@ describe('Rate limit por IP real (Hallazgo ALTO 1)', () => {
     // Sin x-proxy-secret válido, el guard ignora x-client-ip y usa la IP del
     // socket real de la conexión: todas estas requests, aunque digan venir
     // de IPs "distintas", comparten el mismo contador real.
+    const email = 'socket-fallback@ejemplo.com';
     for (let i = 0; i < 5; i++) {
-      const r = await intentoLogin({ 'x-client-ip': `20.20.20.${i}` });
+      const r = await intentoLogin({ 'x-client-ip': `20.20.20.${i}` }, email);
       expect(r.status).not.toBe(429);
     }
-    const sexta = await intentoLogin({ 'x-client-ip': '20.20.20.99' });
+    const sexta = await intentoLogin({ 'x-client-ip': '20.20.20.99' }, email);
     expect(sexta.status).toBe(429);
   });
 
   it('login llega a 429 en el 6.º intento por IP', async () => {
     const headers = { 'x-client-ip': '30.30.30.30', 'x-proxy-secret': SECRETO };
+    const email = 'sexto-intento@ejemplo.com';
     for (let i = 0; i < 5; i++) {
-      const r = await intentoLogin(headers);
+      const r = await intentoLogin(headers, email);
       expect(r.status).not.toBe(429);
     }
-    const sexta = await intentoLogin(headers);
+    const sexta = await intentoLogin(headers, email);
     expect(sexta.status).toBe(429);
   });
 });
