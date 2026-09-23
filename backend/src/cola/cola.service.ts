@@ -10,10 +10,13 @@ import {
   OnApplicationBootstrap,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import { Interval } from '@nestjs/schedule';
 import { IpHashService } from '../common/ip-hash.service';
+import { CACHE_TTL_ESTADO_MS } from '../common/cache.config';
 import { contarReservasPendientesPorIp } from '../common/reservas-pendientes.util';
 import { MAX_PENDIENTES_POR_IP } from '../common/throttle.config';
+import { TtlCache } from '../common/ttl-cache';
 import { TurnstileService } from '../common/turnstile.service';
 import { CreditosService } from '../creditos/creditos.service';
 import { FallosCanjeService } from '../creditos/fallos-canje.service';
@@ -21,12 +24,28 @@ import { MercadoPagoService } from '../mercadopago/mercadopago.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SesionesService } from '../sesiones/sesiones.service';
 import { HeartbeatService } from '../shelly/heartbeat.service';
+import { SillasService } from '../sillas/sillas.service';
 import { generarCodigo } from './codigo.util';
 
 /** Minutos que se espera el pago de un turno antes de cancelarlo. */
 export const TIMEOUT_PAGO_TURNO_MIN = 3;
 /** Minutos de ventana para confirmar presencia una vez asignada una silla. */
 export const VENTANA_CONFIRMACION_MIN = 2;
+
+/** Resumen que cachea `estadoResumen()` (Bloque C): sin campos de reloj en
+ * vivo, se cachea el objeto completo tal cual se devuelve. */
+type ResumenCola = { enCola: number; sillasLibres: number; sillasTotal: number };
+
+/** Fila de `turno` (con sus includes) que cachea `estadoTurno()` (Bloque C). */
+type TurnoConIncludes = Prisma.TurnoGetPayload<{
+  include: {
+    silla: true;
+    sesion: { select: { id: true; estado: true; interrumpidaEn: true } };
+  };
+}>;
+
+/** Key fija del único resumen cacheado (no hay uno por silla ni por local). */
+const KEY_RESUMEN = 'resumen';
 
 /**
  * Cola compartida entre todas las sillas del local. Se paga al anotarse
@@ -46,6 +65,15 @@ export class ColaService implements OnApplicationBootstrap {
   private timers = new Map<string, NodeJS.Timeout>();
   private readonly frontendUrlFallback: string;
 
+  /**
+   * Caches de estado público (Bloque C). Se cachean filas/resultados
+   * crudos, nunca la respuesta final: `segundosVentana` y
+   * `segundosRestantesSesion` de `estadoTurno` dependen de `Date.now()` y se
+   * recalculan en cada llamada, incluso en un hit de cache.
+   */
+  private readonly resumenCache = new TtlCache<ResumenCola>(CACHE_TTL_ESTADO_MS);
+  private readonly turnoCache = new TtlCache<TurnoConIncludes | null>(CACHE_TTL_ESTADO_MS);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly mp: MercadoPagoService,
@@ -55,9 +83,20 @@ export class ColaService implements OnApplicationBootstrap {
     private readonly fallosCanje: FallosCanjeService,
     private readonly turnstile: TurnstileService,
     private readonly ipHash: IpHashService,
+    private readonly sillas: SillasService,
     config: ConfigService,
   ) {
     this.frontendUrlFallback = config.get<string>('FRONTEND_URL', '');
+  }
+
+  /** Fuerza a que el próximo `estadoResumen()` vuelva a pegarle a la base. */
+  invalidarCacheResumen(): void {
+    this.resumenCache.invalidar(KEY_RESUMEN);
+  }
+
+  /** Fuerza a que el próximo `estadoTurno(turnoId)` vuelva a pegarle a la base. */
+  invalidarCacheTurno(turnoId: string): void {
+    this.turnoCache.invalidar(turnoId);
   }
 
   // ── Recuperación tras reinicio ────────────────────────────────
@@ -199,13 +238,20 @@ export class ColaService implements OnApplicationBootstrap {
       data: { estado: 'CANCELADA', finReal: new Date(), motivoCierre: 'pago_no_recibido' },
     });
     if (res.count > 0) {
+      this.invalidarCacheTurno(turnoId);
       this.logger.log(`Turno ${turnoId} expirado/cancelado sin pago`);
     }
   }
 
   // ── ESPERANDO_PAGO → EN_COLA (webhook aprobado) ────────────────
 
-  /** Llamado desde PagosService cuando el webhook confirma el pago de un turno. */
+  /**
+   * Llamado desde PagosService cuando el webhook confirma el pago de un
+   * turno. Tira ConflictException si el turno ya no está ESPERANDO_PAGO
+   * (venció o se canceló antes de que llegara el pago) — PagosService lo
+   * atrapa para marcar el pago con requiereRevision=true, mismo contrato
+   * que SesionesService.activarSesion para el flujo de sesión directa.
+   */
   async procesarPagoAprobado(turnoId: string) {
     this.cancelarTimer(turnoId);
     const codigo = await this.generarCodigoUnico();
@@ -215,9 +261,16 @@ export class ColaService implements OnApplicationBootstrap {
       data: { estado: 'EN_COLA', pagadoEn: new Date(), codigo },
     });
     if (res.count === 0) {
-      this.logger.log(`Turno ${turnoId} ya no estaba ESPERANDO_PAGO, se ignora`);
-      return;
+      // El turno ya no estaba ESPERANDO_PAGO (venció o se canceló antes de
+      // que llegara este pago aprobado). Igual que
+      // SesionesService.activarSesion en el caso análogo, se tira
+      // ConflictException: es lo que PagosService.procesarPagoDeTurno
+      // atrapa para marcar el pago con requiereRevision=true en vez de
+      // perder de vista una plata cobrada sin turno detrás.
+      throw new ConflictException(`Turno ${turnoId} ya no estaba ESPERANDO_PAGO`);
     }
+    this.invalidarCacheTurno(turnoId);
+    this.invalidarCacheResumen(); // enCola sube
 
     this.logger.log(`Turno ${turnoId}: EN_COLA (código ${codigo})`);
     await this.intentarAsignar();
@@ -259,6 +312,8 @@ export class ColaService implements OnApplicationBootstrap {
         data: { estado: 'RESERVADA' },
       });
       if (reservada.count === 0) continue; // otra ejecución se la ganó, reintentar
+      this.sillas.invalidarCache(silla.id);
+      this.invalidarCacheResumen(); // sillasLibres baja
 
       const asignado = await this.prisma.turno.updateMany({
         where: { id: turno.id, estado: 'EN_COLA' },
@@ -271,8 +326,12 @@ export class ColaService implements OnApplicationBootstrap {
           where: { id: silla.id, estado: 'RESERVADA' },
           data: { estado: 'LIBRE' },
         });
+        this.sillas.invalidarCache(silla.id);
+        this.invalidarCacheResumen(); // sillasLibres vuelve a subir
         continue;
       }
+      this.invalidarCacheTurno(turno.id);
+      this.invalidarCacheResumen(); // enCola baja
 
       const limite = new Date(Date.now() + VENTANA_CONFIRMACION_MIN * 60_000);
       this.programar(turno.id, limite, () => this.expirarVentanaConfirmacion(turno.id));
@@ -305,12 +364,16 @@ export class ColaService implements OnApplicationBootstrap {
     // Si esto falla (ej. Shelly no responde), el turno queda ASIGNADO sin
     // timer — igual riesgo que ya existe hoy en SesionesService.activarSesion
     // para el pago directo. Requiere intervención manual del admin.
+    // (activarSesion ya invalida la cache de SillasService de esta silla.)
     await this.sesiones.activarSesion(sesion.id);
 
     await this.prisma.turno.update({
       where: { id: turnoId },
       data: { estado: 'EN_USO', sesionId: sesion.id },
     });
+    this.invalidarCacheTurno(turnoId);
+    // La silla pasa de RESERVADA a EN_USO, no de/a LIBRE: no cambia
+    // sillasLibres/sillasTotal, así que el resumen no necesita invalidarse.
 
     return { ok: true, sillaId: turno.sillaId };
   }
@@ -327,12 +390,15 @@ export class ColaService implements OnApplicationBootstrap {
       where: { id: turnoId },
       data: { estado: 'CANCELADA', finReal: new Date(), motivoCierre: 'no_confirmo_a_tiempo' },
     });
+    this.invalidarCacheTurno(turnoId);
 
     if (turno.sillaId) {
       await this.prisma.silla.updateMany({
         where: { id: turno.sillaId, estado: 'RESERVADA' },
         data: { estado: 'LIBRE' },
       });
+      this.sillas.invalidarCache(turno.sillaId);
+      this.invalidarCacheResumen(); // sillasLibres sube
     }
 
     this.logger.log(`Turno ${turnoId} no confirmó a tiempo, silla liberada`);
@@ -341,25 +407,45 @@ export class ColaService implements OnApplicationBootstrap {
 
   // ── Consultas públicas ──────────────────────────────────────────
 
-  /** Resumen para mostrar en la landing de una silla ocupada. */
-  async estadoResumen() {
-    const [enCola, sillasLibres, sillasTotal] = await Promise.all([
-      this.prisma.turno.count({ where: { estado: 'EN_COLA' } }),
-      this.prisma.silla.count({ where: { estado: 'LIBRE' } }),
-      this.prisma.silla.count({ where: { estado: { not: 'FUERA_DE_SERVICIO' } } }),
-    ]);
-    return { enCola, sillasLibres, sillasTotal };
+  /**
+   * Resumen para mostrar en la landing de una silla ocupada. Sin campos de
+   * reloj en vivo (Bloque C): se cachea el objeto completo tal cual, no hay
+   * nada que recalcular en un hit de cache.
+   */
+  async estadoResumen(): Promise<ResumenCola> {
+    return this.resumenCache.obtenerOCargar(KEY_RESUMEN, async () => {
+      const [enCola, sillasLibres, sillasTotal] = await Promise.all([
+        this.prisma.turno.count({ where: { estado: 'EN_COLA' } }),
+        this.prisma.silla.count({ where: { estado: 'LIBRE' } }),
+        this.prisma.silla.count({ where: { estado: { not: 'FUERA_DE_SERVICIO' } } }),
+      ]);
+      return { enCola, sillasLibres, sillasTotal };
+    });
   }
 
-  /** Estado de un turno puntual, para el polling de /cola/[turnoId]. */
+  /**
+   * Estado de un turno puntual, para el polling de /cola/[turnoId].
+   *
+   * Bloque C: se cachea la fila cruda de `turno` (con sus includes);
+   * `segundosVentana` y `segundosRestantesSesion` se recalculan siempre en
+   * vivo. `posicion`/`sillasLibres` (el conteo de la cola en el momento) se
+   * dejan siempre en vivo a propósito: son dos `count()` baratos sobre
+   * columnas indexadas y cambian tan rápido — cualquier pago aprobado o
+   * asignación en curso las mueve — que cachearlas ni ahorra demasiado ni
+   * conviene: es justo lo que el cliente está mirando bajar en pantalla.
+   * `credito` tampoco se cachea, mismo motivo que en
+   * SesionesService.estadoPublico.
+   */
   async estadoTurno(turnoId: string) {
-    const turno = await this.prisma.turno.findUnique({
-      where: { id: turnoId },
-      include: {
-        silla: true,
-        sesion: { select: { id: true, estado: true, interrumpidaEn: true } },
-      },
-    });
+    const turno = await this.turnoCache.obtenerOCargar(turnoId, () =>
+      this.prisma.turno.findUnique({
+        where: { id: turnoId },
+        include: {
+          silla: true,
+          sesion: { select: { id: true, estado: true, interrumpidaEn: true } },
+        },
+      }),
+    );
     if (!turno) throw new NotFoundException('Turno no encontrado');
 
     let posicion: number | null = null;
@@ -461,6 +547,7 @@ export class ColaService implements OnApplicationBootstrap {
       });
       throw e;
     }
+    this.invalidarCacheResumen(); // el turno nace directo en EN_COLA
 
     await this.creditos.vincularTurno(credito.id, turno.id);
     this.logger.log(

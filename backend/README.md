@@ -62,6 +62,8 @@ Al reiniciar el servidor, `SesionesService.onApplicationBootstrap()` reconstruye
 | POST | `/admin/sillas/:id/activar` | Activación manual (sin pago) |
 | POST | `/admin/sillas/:id/detener` | Parada de emergencia |
 | GET | `/admin/sillas/:id/probar` | Estado en vivo del Shelly de esa silla |
+| GET | `/admin/pagos/revision?take` | Pagos aprobados que no activaron ningún servicio, o que MP marcó reembolsado/contracargado después de aprobados (Bloque B) |
+| POST | `/admin/pagos/:id/resolver` | Resuelve a mano un pago marcado para revisión (`emitir_vale` / `marcar_reembolsado` / `ignorar`). Idempotente |
 
 ## Seguridad: variables de entorno y límites (hardening ALTOS)
 
@@ -78,8 +80,9 @@ acá va el resumen y qué pasa si falta.
 | `MP_WEBHOOK_SECRET` | Valida la firma `x-signature` del webhook de Mercado Pago | El webhook **rechaza todas** las notificaciones (falla cerrado) — salvo `MP_WEBHOOK_ALLOW_UNSIGNED=true` | **El backend no arranca** (sin excepción: `MP_WEBHOOK_ALLOW_UNSIGNED` no se respeta en producción) |
 | `MP_WEBHOOK_ALLOW_UNSIGNED` | Escape hatch SOLO de desarrollo: permite probar el flujo de pago sin configurar `MP_WEBHOOK_SECRET` | Con `true`, el webhook acepta notificaciones sin validar firma (aviso fuerte en el log) | Ignorada — no hay forma de saltear la firma en producción |
 | `MAX_PENDIENTES_POR_IP` (default `3`) | Tope de reservas `PENDIENTE`/`ESPERANDO_PAGO` simultáneas por IP antes de responder 429 | — | — |
+| `CORS_ORIGINS` | Lista de orígenes permitidos para `app.enableCors()`, separados por coma (Bloque D) | Sin configurar: se refleja cualquier origen — solo aviso | Sin configurar: **falla cerrado** (ningún origen cross-origin permitido), no bloquea el arranque |
 
-En todos los casos "el backend no arranca" significa que `verificarEntornoDeArranque()` (`src/common/verificar-entorno.ts`, llamada al inicio de `main.ts`) tira una excepción antes de levantar el servidor HTTP — falla rápido y explícito, en vez de arrancar en un estado silenciosamente inseguro.
+En los primeros cuatro casos, "el backend no arranca" significa que `verificarEntornoDeArranque()` (`src/common/verificar-entorno.ts`, llamada al inicio de `main.ts`) tira una excepción antes de levantar el servidor HTTP — falla rápido y explícito, en vez de arrancar en un estado silenciosamente inseguro. `CORS_ORIGINS` es la excepción a propósito: como el único consumidor real ya pasa por el proxy same-origin del frontend, bloquear el arranque por esta variable sería desproporcionado — en cambio, `resolverCorsOrigins()` falla cerrado (sin arrancar en un estado inseguro) sin impedir que el backend levante.
 
 ### Límites de rate limiting (por IP real, ver Hallazgo ALTO 1)
 
@@ -98,6 +101,24 @@ Centralizados en `src/common/throttle.config.ts`. El tracker (`IpThrottlerGuard`
 **Storage en memoria, una sola instancia** (`ThrottlerStorageService` por defecto de `@nestjs/throttler`): no sobrevive un reinicio ni se comparte entre réplicas. Correcto para el despliegue actual (un solo proceso); si en algún momento se corre más de una instancia del backend, hay que migrar a un storage compartido (ej. Redis) o el límite deja de ser real entre instancias.
 
 Además del rate limit por request, `/cola/canjear` tiene un segundo freno específico contra fuerza bruta de códigos de vale (Hallazgo ALTO 3): `FallosCanjeService` bloquea una IP por 1 hora (`BLOQUEO_CANJE_MS`) tras `MAX_FALLOS_CANJE` (20) intentos fallidos en una ventana de 1 hora (`VENTANA_FALLOS_CANJE_MS`). Un canje exitoso limpia el historial de esa IP. También en memoria, una sola instancia, mismo límite que el storage del throttler de arriba.
+
+### Validación de entrada (Bloque D, hallazgos BAJOS)
+
+- **Paginación** (`take`/`skip` de `/admin/sesiones`, `/admin/creditos`,
+  `/admin/pagos/revision`): un valor negativo, o `take=0`, devuelve **400**
+  (antes: 500 de Prisma, o un `take` negativo tomando registros de la punta
+  opuesta de la lista). Implementado con un pipe chico (`ParseIntMinPipe`,
+  en `src/common/`) encadenado después de `ParseIntPipe`/`DefaultValuePipe`,
+  mismo patrón de pipes que ya usaba el controller.
+- **DTOs de `Silla`** (`CrearSillaDto`/`ActualizarSillaDto`, constraints
+  compartidas en `src/admin/dto/silla.constraints.ts`):
+  - `nombre`: máximo 80 caracteres, se recorta (trim) antes de validar.
+  - `precio`: máximo 2 decimales y tope de $1.000.000 ARS (cota generosa
+    contra un error de tipeo, no un límite de negocio real).
+  - `deviceIdShelly`: tiene que matchear `^[a-f0-9]{12}$` (12 hex en
+    minúscula — el formato real de un device ID de Shelly Cloud). Es un
+    chequeo de formato best-effort: no reemplaza la validación real contra
+    la API de Shelly Cloud que ya hace `AdminService.validarDispositivo`.
 
 ### Migración pendiente: `ip_hash`
 
@@ -142,6 +163,30 @@ done
 curl -s -o /dev/null -w "%{http_code}\n" -X POST \
   "http://localhost:3002/webhooks/mercadopago?type=payment&data.id=123"
 ```
+
+### Test de integración con Postgres real (`npm run test:int`)
+
+Los tests unitarios (`npm test`) mockean Prisma: no pueden probar de verdad
+una condición de carrera a nivel de motor de base de datos (por ejemplo, dos
+inserts concurrentes chocando contra el `@unique` de `Pago.paymentIdMp`
+cuando el Webhook de Mercado Pago y el retorno del navegador llegan casi al
+mismo tiempo para el mismo `payment_id`). `test/integration/pagos-race.int-spec.ts`
+prueba justo eso, contra un Postgres real.
+
+Requiere una base de datos de **prueba** real (nunca la de desarrollo ni la de
+producción) con las migraciones aplicadas:
+
+```bash
+TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/silla_test \
+  npx prisma migrate deploy --schema=./prisma/schema.prisma
+
+npm run test:int
+```
+
+Sin `TEST_DATABASE_URL` seteada, el test falla de entrada con un mensaje
+explícito en vez de intentar correr contra `DATABASE_URL` (nunca se usa como
+fallback, sería peligroso). El detalle completo de qué prueba y por qué
+necesita Postgres real está en el comentario al tope de ese archivo.
 
 ## Reglas críticas implementadas
 
