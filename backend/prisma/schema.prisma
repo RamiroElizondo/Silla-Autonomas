@@ -27,6 +27,10 @@ enum EstadoPago {
   PENDIENTE
   APROBADO
   RECHAZADO
+  // Estaba APROBADO y Mercado Pago después lo reportó refunded/charged_back/
+  // cancelled (Bloque B). No se corta la corriente automáticamente: queda
+  // para que el dueño lo resuelva desde el panel (ver requiereRevision).
+  REEMBOLSADO
 }
 
 enum EstadoTurno {
@@ -103,7 +107,8 @@ model Pago {
   // Una de las dos siempre está seteada: pago directo a una silla (sesionId)
   // o pago para entrar a la cola compartida (turnoId). Se registra siempre,
   // aprobado o no, para auditoría — incluso si después no llega a activar
-  // ninguna silla (ver PagosService.procesarNotificacionPago).
+  // ninguna silla (ver PagosService.procesarNotificacionPago). Ninguna de
+  // las dos: external_reference desconocido (Bloque B).
   sesionId    String?    @map("sesion_id")
   sesion      Sesion?    @relation(fields: [sesionId], references: [id])
   turnoId     String?    @map("turno_id")
@@ -113,7 +118,17 @@ model Pago {
   estado      EstadoPago
   rawWebhook  Json?      @map("raw_webhook")
   recibidoEn  DateTime   @default(now()) @map("recibido_en")
+  // Bloque B (hallazgo MEDIO): pago aprobado que no llegó a activar ningún
+  // servicio (sesión/turno ya no pendiente, monto insuficiente, moneda
+  // distinta de ARS, external_reference desconocido) o que MP marcó
+  // refunded/charged_back/cancelled después de haber sido APROBADO. El dueño
+  // lo resuelve desde /admin/pagos/revision.
+  requiereRevision Boolean   @default(false) @map("requiere_revision")
+  motivoRevision   String?   @map("motivo_revision")
+  resolucion       String?   // VALE_EMITIDO | REEMBOLSADO_MANUAL | IGNORADO
+  resueltoEn       DateTime? @map("resuelto_en")
 
+  @@index([requiereRevision, resueltoEn])
   @@map("pagos")
 }
 
@@ -183,6 +198,10 @@ model UsuarioAdmin {
   id           String    @id @default(uuid())
   email        String    @unique
   passwordHash String    @map("password_hash")
+  // Se incrementa en cada logout (Hallazgo MEDIO: revocación). JwtAuthGuard
+  // compara este valor contra el del token en cada request; si no coinciden,
+  // el token quedó revocado aunque no haya expirado todavía.
+  tokenVersion Int       @default(0) @map("token_version")
   ultimoLogin  DateTime? @map("ultimo_login")
   creadoEn     DateTime  @default(now()) @map("creado_en")
 

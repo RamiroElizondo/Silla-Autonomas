@@ -1,3 +1,9 @@
+/** Respuesta de GET /admin/auth/me */
+export interface UsuarioAdmin {
+  id: string;
+  email: string;
+}
+
 export type EstadoSilla =
   | "LIBRE"
   | "PAGO_PENDIENTE"
@@ -172,6 +178,31 @@ export interface CreditoAdmin {
 export interface HistorialRespuesta {
   items: SesionAdmin[];
   total: number;
+}
+
+/**
+ * Item de GET /admin/pagos/revision (Bloque B del hardening): un pago
+ * aprobado que no llegó a activar ningún servicio, o que Mercado Pago marcó
+ * refunded/charged_back/cancelled después de haber sido aprobado. El dueño
+ * lo resuelve a mano con POST /admin/pagos/:id/resolver.
+ */
+export interface PagoRevision {
+  id: string;
+  paymentIdMp: string;
+  monto: number;
+  estado: "PENDIENTE" | "APROBADO" | "RECHAZADO" | "REEMBOLSADO";
+  motivoRevision: string | null;
+  recibidoEn: string;
+  sesion: { id: string; sillaId: string; silla: { nombre: string } } | null;
+  turno: { id: string; sillaId: string | null; codigo: string | null } | null;
+}
+
+/** Payload de POST /admin/pagos/:id/resolver */
+export interface ResolverPagoPayload {
+  accion: "emitir_vale" | "marcar_reembolsado" | "ignorar";
+  nota?: string;
+  /** Obligatorio para 'emitir_vale' cuando el pago no tiene sesión ni turno. */
+  duracionMinVale?: number;
 }
 
 /* ---------- Cola compartida ---------- */

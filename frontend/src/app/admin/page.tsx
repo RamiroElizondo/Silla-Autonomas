@@ -5,54 +5,60 @@ import { EstadoBadge } from "@/components/EstadoBadge";
 import { FormSilla } from "@/components/FormSilla";
 import {
   activarManual,
+  cerrarSesion,
   login,
   obtenerCreditos,
   obtenerHistorial,
+  obtenerPagosRevision,
   obtenerSillasAdmin,
   pararEmergencia,
   probarSilla,
+  resolverPago,
+  verificarSesion,
 } from "@/lib/api";
 import type {
   CreditoAdmin,
+  PagoRevision,
+  ResolverPagoPayload,
   ResultadoPrueba,
   SesionAdmin,
   SillaAdmin,
+  UsuarioAdmin,
 } from "@/lib/tipos";
 
-const TOKEN_KEY = "admin_token";
-
 export default function Admin() {
-  const [token, setToken] = useState<string | null>(null);
+  const [sesion, setSesion] = useState<UsuarioAdmin | null>(null);
   const [listo, setListo] = useState(false);
 
   useEffect(() => {
-    setToken(localStorage.getItem(TOKEN_KEY));
-    setListo(true);
+    // La sesión vive en una cookie httpOnly (Bloque A del hardening): acá
+    // no hay ningún token que leer, solo preguntarle al backend si la
+    // cookie que mandó el navegador sigue siendo válida.
+    verificarSesion()
+      .then(setSesion)
+      .finally(() => setListo(true));
   }, []);
 
   if (!listo) return null;
 
-  return token ? (
+  return sesion ? (
     <Dashboard
-      token={token}
-      onCerrarSesion={() => {
-        localStorage.removeItem(TOKEN_KEY);
-        setToken(null);
+      onCerrarSesion={async () => {
+        try {
+          await cerrarSesion();
+        } finally {
+          setSesion(null);
+        }
       }}
     />
   ) : (
-    <Login
-      onLogin={(t) => {
-        localStorage.setItem(TOKEN_KEY, t);
-        setToken(t);
-      }}
-    />
+    <Login onLogin={() => verificarSesion().then(setSesion)} />
   );
 }
 
 /* ---------- Login ---------- */
 
-function Login({ onLogin }: { onLogin: (token: string) => void }) {
+function Login({ onLogin }: { onLogin: () => void }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -63,8 +69,8 @@ function Login({ onLogin }: { onLogin: (token: string) => void }) {
     setCargando(true);
     setError(null);
     try {
-      const { token } = await login(email, password);
-      onLogin(token);
+      await login(email, password);
+      onLogin();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo iniciar sesión");
       setCargando(false);
@@ -112,15 +118,14 @@ function Login({ onLogin }: { onLogin: (token: string) => void }) {
 /* ---------- Dashboard ---------- */
 
 function Dashboard({
-  token,
   onCerrarSesion,
 }: {
-  token: string;
   onCerrarSesion: () => void;
 }) {
   const [sillas, setSillas] = useState<SillaAdmin[]>([]);
   const [sesiones, setSesiones] = useState<SesionAdmin[]>([]);
   const [creditos, setCreditos] = useState<CreditoAdmin[]>([]);
+  const [pagosRevision, setPagosRevision] = useState<PagoRevision[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [accionando, setAccionando] = useState<string | null>(null);
   /** null = cerrado, "nueva" = alta, SillaAdmin = edición */
@@ -129,24 +134,29 @@ function Dashboard({
     Record<string, ResultadoPrueba | "cargando" | { error: string }>
   >({});
   const [confirmarParar, setConfirmarParar] = useState<SillaAdmin | null>(null);
+  const [resolviendo, setResolviendo] = useState<string | null>(null);
+  /** Duración del vale (minutos) para pagos sin sesión/turno asociado. */
+  const [duracionVale, setDuracionVale] = useState<Record<string, number>>({});
 
   const cargar = useCallback(async () => {
     try {
-      const [s, h, c] = await Promise.all([
-        obtenerSillasAdmin(token),
-        obtenerHistorial(token, 50),
-        obtenerCreditos(token, 50),
+      const [s, h, c, pr] = await Promise.all([
+        obtenerSillasAdmin(),
+        obtenerHistorial(50),
+        obtenerCreditos(50),
+        obtenerPagosRevision(50),
       ]);
       setSillas(s);
       setSesiones(h.items);
       setCreditos(c);
+      setPagosRevision(pr);
       setError(null);
     } catch (e) {
       const mensaje = e instanceof Error ? e.message : "Error de conexión";
       if (mensaje.includes("401")) onCerrarSesion();
       setError(mensaje);
     }
-  }, [token, onCerrarSesion]);
+  }, [onCerrarSesion]);
 
   useEffect(() => {
     cargar();
@@ -157,7 +167,7 @@ function Dashboard({
   async function probar(sillaId: string) {
     setPruebas((p) => ({ ...p, [sillaId]: "cargando" }));
     try {
-      const r = await probarSilla(token, sillaId);
+      const r = await probarSilla(sillaId);
       setPruebas((p) => ({ ...p, [sillaId]: r }));
     } catch (e) {
       setPruebas((p) => ({
@@ -169,16 +179,38 @@ function Dashboard({
 
   async function accion(
     sillaId: string,
-    fn: (t: string, id: string) => Promise<unknown>,
+    fn: (id: string) => Promise<unknown>,
   ) {
     setAccionando(sillaId);
     try {
-      await fn(token, sillaId);
+      await fn(sillaId);
       await cargar();
     } catch (e) {
       setError(e instanceof Error ? e.message : "La acción falló");
     } finally {
       setAccionando(null);
+    }
+  }
+
+  /**
+   * Resuelve a mano un pago aprobado que no activó ningún servicio, o que se
+   * marcó como reembolsado (Bloque B). Para 'emitir_vale' sin sesión ni
+   * turno asociado, hace falta indicar la duración a mano (ver `duracionVale`).
+   */
+  async function resolver(pago: PagoRevision, accion: ResolverPagoPayload["accion"]) {
+    setResolviendo(pago.id);
+    try {
+      const sinReferencia = !pago.sesion && !pago.turno;
+      await resolverPago(pago.id, {
+        accion,
+        duracionMinVale:
+          accion === "emitir_vale" && sinReferencia ? duracionVale[pago.id] : undefined,
+      });
+      await cargar();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo resolver el pago");
+    } finally {
+      setResolviendo(null);
     }
   }
 
@@ -242,7 +274,6 @@ function Dashboard({
       <section className="mt-2.5 flex flex-col gap-2.5">
         {form !== null && (
           <FormSilla
-            token={token}
             silla={form === "nueva" ? undefined : form}
             onListo={() => {
               setForm(null);
@@ -324,6 +355,83 @@ function Dashboard({
           </article>
         ))}
       </section>
+
+      {pagosRevision.length > 0 && (
+        <>
+          <h2 className="mt-8 text-[13px] font-medium text-tinta-suave">
+            Pagos para revisar
+          </h2>
+          <section className="mt-2.5 flex flex-col gap-2.5">
+            {pagosRevision.map((p) => {
+              const sinReferencia = !p.sesion && !p.turno;
+              return (
+                <article
+                  key={p.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-terracota-borde bg-terracota-claro px-5 py-4"
+                >
+                  <div>
+                    <p className="text-[15px] font-medium">
+                      ${p.monto.toLocaleString("es-AR")}
+                      {p.sesion?.silla && ` · ${p.sesion.silla.nombre}`}
+                      {sinReferencia && p.turno?.codigo && ` · Turno ${p.turno.codigo}`}
+                    </p>
+                    <p className="mt-0.5 text-[13px] text-terracota-oscuro">
+                      {MOTIVOS_REVISION[p.motivoRevision ?? ""] ??
+                        p.motivoRevision ??
+                        "Sin motivo registrado"}
+                      {" · "}
+                      {new Date(p.recibidoEn).toLocaleString("es-AR", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {sinReferencia && (
+                      <input
+                        type="number"
+                        min={1}
+                        max={120}
+                        placeholder="min"
+                        value={duracionVale[p.id] ?? ""}
+                        onChange={(e) =>
+                          setDuracionVale((d) => ({ ...d, [p.id]: Number(e.target.value) }))
+                        }
+                        className="w-16 rounded-[10px] border border-borde bg-marfil px-2 py-2 text-[13px] outline-none focus:border-borde-fuerte"
+                      />
+                    )}
+                    <button
+                      onClick={() => resolver(p, "emitir_vale")}
+                      disabled={
+                        resolviendo === p.id || (sinReferencia && !duracionVale[p.id])
+                      }
+                      className="rounded-[10px] border border-borde-fuerte px-3 py-2 text-[13px] text-tinta-suave transition hover:bg-panal disabled:opacity-50"
+                    >
+                      Emitir vale
+                    </button>
+                    <button
+                      onClick={() => resolver(p, "marcar_reembolsado")}
+                      disabled={resolviendo === p.id}
+                      className="rounded-[10px] border border-borde-fuerte px-3 py-2 text-[13px] text-tinta-suave transition hover:bg-panal disabled:opacity-50"
+                    >
+                      Ya reembolsé
+                    </button>
+                    <button
+                      onClick={() => resolver(p, "ignorar")}
+                      disabled={resolviendo === p.id}
+                      className="rounded-[10px] px-3 py-2 text-[13px] text-tinta-muted transition hover:bg-panal disabled:opacity-50"
+                    >
+                      Ignorar
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </section>
+        </>
+      )}
 
       <h2 className="mt-8 text-[13px] font-medium text-tinta-suave">
         Últimas operaciones
@@ -531,6 +639,18 @@ function Metrica({ etiqueta, valor }: { etiqueta: string; valor: string }) {
     </div>
   );
 }
+
+/** Motivos de revisión de pagos (Bloque B), en castellano para el dueño. */
+const MOTIVOS_REVISION: Record<string, string> = {
+  moneda_no_ars: "Pagó en otra moneda",
+  monto_insuficiente: "Pagó de menos",
+  sesion_no_pendiente: "La reserva ya había vencido cuando llegó el pago",
+  turno_no_pendiente: "El turno ya había vencido cuando llegó el pago",
+  external_reference_desconocido: "No se pudo identificar a qué correspondía",
+  pago_refunded: "Mercado Pago lo marcó como reembolsado",
+  pago_charged_back: "El banco hizo un contracargo",
+  pago_cancelled: "Mercado Pago lo canceló",
+};
 
 /** Motivos de cierre en castellano, para no mostrarle snake_case al dueño. */
 const MOTIVOS: Record<string, string> = {

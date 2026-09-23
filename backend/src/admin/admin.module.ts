@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { CreditosModule } from '../creditos/creditos.module';
+import { PagosModule } from '../pagos/pagos.module';
 import { SesionesModule } from '../sesiones/sesiones.module';
 import { ShellyModule } from '../shelly/shelly.module';
 import { AdminController } from './admin.controller';
@@ -9,12 +10,14 @@ import { AdminService } from './admin.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { LoginBloqueoService } from './login-bloqueo.service';
 
 @Module({
   imports: [
     SesionesModule,
     ShellyModule,
     CreditosModule,
+    PagosModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -24,6 +27,6 @@ import { JwtAuthGuard } from './jwt-auth.guard';
     }),
   ],
   controllers: [AuthController, AdminController],
-  providers: [AuthService, AdminService, JwtAuthGuard],
+  providers: [AuthService, AdminService, JwtAuthGuard, LoginBloqueoService],
 })
 export class AdminModule {}
