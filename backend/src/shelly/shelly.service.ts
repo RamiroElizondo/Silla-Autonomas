@@ -127,12 +127,35 @@ export class ShellyService {
   private cacheDispositivos: { datos: DispositivoCloud[]; expira: number } | null =
     null;
 
+  /**
+   * Bloque de loadtest (`backend/loadtest/`): con `LOADTEST=true`, `setRele`
+   * queda mockeado (nunca llama a la Shelly Cloud API real). Es el único
+   * método de este servicio que participa del flujo checkout→activación
+   * (ver `SesionesService`); `getEstado`/`listarDispositivos` los usa el
+   * heartbeat con su propio intervalo fijo de 30s, no el tráfico de la
+   * carga, así que no hace falta mockearlos para que el load test no
+   * reviente el límite de ~1 req/seg de Shelly Cloud. `verificarEntornoDeArranque`
+   * aborta el arranque si esto llegara a estar activo con
+   * `NODE_ENV=production` — encender/apagar un relé "de mentira" en
+   * producción sería tan grave como aprobar un pago falso.
+   */
+  private readonly loadtest: boolean;
+
   constructor(
     config: ConfigService,
     private readonly prisma: PrismaService,
   ) {
     this.server = config.get<string>('SHELLY_SERVER', '').replace(/\/+$/, '');
     this.authKey = config.get<string>('SHELLY_AUTH_KEY', '');
+    this.loadtest = config.get<string>('LOADTEST', '') === 'true';
+
+    if (this.loadtest) {
+      this.logger.warn(
+        'LOADTEST=true: ShellyService.setRele está MOCKEADO — no llama a la ' +
+          'Shelly Cloud API real. NUNCA debe estar activo en producción (ver ' +
+          'verificarEntornoDeArranque).',
+      );
+    }
   }
 
   // ── Transporte ────────────────────────────────────────────────
@@ -194,12 +217,27 @@ export class ShellyService {
    * @param apagarEnSeg Al encender, programa el apagado en la propia nube
    *   (`toggle_after`) como fallback por si el backend no llega a mandar el OFF.
    *   Un ON nuevo o un OFF explícito reprograman/cancelan ese timer.
+   *
+   * Bloque de loadtest: con `LOADTEST=true`, devuelve éxito de inmediato sin
+   * pegarle a la red ni pasar por el throttle de ~1 req/seg — necesario
+   * porque un load test real dispara muchas más activaciones por segundo de
+   * las que la Shelly Cloud API tolera (ver el throttle en el constructor de
+   * esta clase).
    */
   async setRele(
     deviceId: string,
     encender: boolean,
     apagarEnSeg?: number,
   ): Promise<void> {
+    if (this.loadtest) {
+      this.logger.log(
+        `LOADTEST=true: relé simulado ${deviceId} → ${encender ? 'ON' : 'OFF'} ` +
+          '(sin llamar a la Shelly Cloud API real)',
+      );
+      this.cacheDispositivos = null;
+      return;
+    }
+
     const body: Record<string, unknown> = {
       id: deviceId,
       channel: 0,

@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import { Payment, Preference } from 'mercadopago';
 import { MercadoPagoService } from './mercadopago.service';
 
 const SECRETO = 'secreto-de-test-para-webhook';
@@ -115,5 +116,132 @@ describe('MercadoPagoService.validarFirma (Hallazgo ALTO 4)', () => {
     }
 
     spy.mockRestore();
+  });
+});
+
+
+describe('MercadoPagoService — bloque de loadtest (LOADTEST=true)', () => {
+  let crearSpy: jest.SpyInstance;
+  let getSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    // Espiamos los métodos reales del SDK para confirmar que, en modo
+    // LOADTEST, nunca se los llama — sin esto el test podría pasar "de
+    // casualidad" si el mock simulado igual devuelve algo con la forma
+    // esperada.
+    crearSpy = jest.spyOn(Preference.prototype, 'create').mockResolvedValue({
+      id: 'no-deberia-usarse',
+      init_point: 'https://mercadopago.example/no-deberia-usarse',
+    } as any);
+    getSpy = jest.spyOn(Payment.prototype, 'get').mockResolvedValue({
+      id: 0,
+      status: 'no-deberia-usarse',
+    } as any);
+  });
+
+  afterEach(() => {
+    crearSpy.mockRestore();
+    getSpy.mockRestore();
+  });
+
+  function crearServicioLoadtest() {
+    const config: any = {
+      get: (clave: string, def = '') =>
+        clave === 'LOADTEST' ? 'true' : (def as string),
+    };
+    return new MercadoPagoService(config);
+  }
+
+  describe('crearPreferencia', () => {
+    it('no llama al SDK real de Mercado Pago', async () => {
+      const servicio = crearServicioLoadtest();
+      await servicio.crearPreferencia({
+        titulo: 'Silla 1 — 10 min de masaje',
+        precio: 3000,
+        externalReference: 'ref-123|silla-1',
+        itemId: 'silla-1',
+        successUrl: 'https://front.example/exito',
+        failureUrl: 'https://front.example/fracaso',
+        pendingUrl: 'https://front.example/fracaso',
+      });
+      expect(crearSpy).not.toHaveBeenCalled();
+    });
+
+    it('devuelve un resultado simulado con la forma esperada', async () => {
+      const servicio = crearServicioLoadtest();
+      const resultado = await servicio.crearPreferencia({
+        titulo: 'Silla 1 — 10 min de masaje',
+        precio: 3000,
+        externalReference: 'ref-123|silla-1',
+        itemId: 'silla-1',
+        successUrl: 'https://front.example/exito',
+        failureUrl: 'https://front.example/fracaso',
+        pendingUrl: 'https://front.example/fracaso',
+      });
+      expect(resultado.id).toMatch(/^loadtest-pref-/);
+      expect(resultado.initPoint).toBe('https://loadtest.local/fake-checkout');
+    });
+
+    it('cada llamada devuelve un id de preferencia distinto', async () => {
+      const servicio = crearServicioLoadtest();
+      const params = {
+        titulo: 'x',
+        precio: 1,
+        externalReference: 'ref|silla',
+        itemId: 'silla',
+        successUrl: 'https://front.example/exito',
+        failureUrl: 'https://front.example/fracaso',
+        pendingUrl: 'https://front.example/fracaso',
+      };
+      const a = await servicio.crearPreferencia(params);
+      const b = await servicio.crearPreferencia(params);
+      expect(a.id).not.toBe(b.id);
+    });
+  });
+
+  describe('obtenerPago', () => {
+    it('no llama al SDK real de Mercado Pago', async () => {
+      const servicio = crearServicioLoadtest();
+      await servicio.obtenerPago('loadtest:ref-123|silla-1:3000');
+      expect(getSpy).not.toHaveBeenCalled();
+    });
+
+    it('con el esquema loadtest:<externalReference>:<monto>, devuelve un pago aprobado con esos datos', async () => {
+      const servicio = crearServicioLoadtest();
+      const pago = await servicio.obtenerPago('loadtest:ref-abc|silla-9:4500');
+
+      expect(pago).not.toBeNull();
+      expect(pago!.status).toBe('approved');
+      expect(pago!.transaction_amount).toBe(4500);
+      expect(pago!.external_reference).toBe('ref-abc|silla-9');
+      expect(pago!.currency_id).toBe('ARS');
+      expect(typeof pago!.id).toBe('number');
+    });
+
+    it('con un external_reference que contiene ":" en el monto, usa el último ":" como separador', async () => {
+      // externalReference real del sistema es "<uuid>|<sillaId>" (sin ":"),
+      // pero el parser usa lastIndexOf(':') a propósito para no depender de
+      // eso — este test lo deja explícito.
+      const servicio = crearServicioLoadtest();
+      const pago = await servicio.obtenerPago('loadtest:algo:con:dos:puntos:1000');
+      expect(pago!.external_reference).toBe('algo:con:dos:puntos');
+      expect(pago!.transaction_amount).toBe(1000);
+    });
+
+    it('con un paymentId que no sigue el esquema, devuelve igual un pago aprobado pero sin external_reference', async () => {
+      const servicio = crearServicioLoadtest();
+      const pago = await servicio.obtenerPago('123456789');
+
+      expect(pago!.status).toBe('approved');
+      expect(pago!.external_reference).toBeNull();
+      expect(pago!.transaction_amount).toBe(0);
+    });
+
+    it('el mismo paymentId siempre devuelve el mismo id numérico (determinístico)', async () => {
+      const servicio = crearServicioLoadtest();
+      const a = await servicio.obtenerPago('loadtest:ref|silla:1000');
+      const b = await servicio.obtenerPago('loadtest:ref|silla:1000');
+      expect(a!.id).toBe(b!.id);
+    });
   });
 });

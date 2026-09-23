@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
@@ -7,6 +7,10 @@ export interface PagoMP {
   id: number;
   status: string; // approved | rejected | pending | ...
   transaction_amount: number;
+  // Bloque B (hallazgo MEDIO): un pago aprobado en otra moneda no debe
+  // activar la silla. Puede faltar en respuestas viejas/mockeadas, por eso
+  // el chequeo en PagosService la trata como ARS si no vino.
+  currency_id?: string;
   external_reference: string | null;
   [k: string]: unknown;
 }
@@ -42,6 +46,12 @@ function parsearXSignature(header: string): XSignatureParseada | null {
   return { ts: partes.ts, v1: partes.v1 };
 }
 
+/** Resultado de parsear el esquema de `paymentId` simulado de LOADTEST. */
+interface PagoLoadtestParseado {
+  externalReference: string;
+  monto: number;
+}
+
 /**
  * Cliente de la API de Mercado Pago (Checkout Pro + Payments), vía SDK
  * oficial. Vive en su propio módulo porque lo usan tanto el pago directo a
@@ -64,12 +74,28 @@ export class MercadoPagoService {
   private readonly preference: Preference;
   private readonly payment: Payment;
 
+  /**
+   * Bloque de loadtest (`backend/loadtest/`): con `LOADTEST=true`, este
+   * servicio queda completamente mockeado — `crearPreferencia` y
+   * `obtenerPago` nunca llaman al SDK real de Mercado Pago. Es necesario
+   * para poder tirar carga sin aprobar pagos de sandbox reales miles de
+   * veces (y, por error de configuración, sin arriesgarse a pegarle a
+   * producción con plata real). `verificarEntornoDeArranque` aborta el
+   * arranque si esto llegara a estar activo con `NODE_ENV=production` — acá
+   * no hay ninguna excepción posible, a diferencia de `permitirSinFirma`.
+   */
+  private readonly loadtest: boolean;
+
+  /** Prefijo que identifica un `paymentId` simulado de LOADTEST. */
+  private static readonly PREFIJO_LOADTEST = 'loadtest:';
+
   constructor(config: ConfigService) {
     const accessToken = config.get<string>('MP_ACCESS_TOKEN', '');
     this.webhookSecret = config.get<string>('MP_WEBHOOK_SECRET', '');
     this.permitirSinFirma =
       !this.webhookSecret &&
       config.get<string>('MP_WEBHOOK_ALLOW_UNSIGNED', '') === 'true';
+    this.loadtest = config.get<string>('LOADTEST', '') === 'true';
 
     if (!this.webhookSecret) {
       if (this.permitirSinFirma) {
@@ -85,6 +111,14 @@ export class MercadoPagoService {
             'secreto, o (solo en desarrollo) MP_WEBHOOK_ALLOW_UNSIGNED=true.',
         );
       }
+    }
+
+    if (this.loadtest) {
+      this.logger.warn(
+        'LOADTEST=true: MercadoPagoService está MOCKEADO — crearPreferencia y ' +
+          'obtenerPago no llaman al SDK real de Mercado Pago. NUNCA debe estar ' +
+          'activo en producción (ver verificarEntornoDeArranque).',
+      );
     }
 
     const client = new MercadoPagoConfig({ accessToken });
@@ -104,6 +138,10 @@ export class MercadoPagoService {
     /** Minutos de vigencia de la preferencia (por defecto 3). */
     vigenciaMin?: number;
   }): Promise<{ id: string; initPoint: string }> {
+    if (this.loadtest) {
+      return this.crearPreferenciaSimulada(params.externalReference);
+    }
+
     try {
       const result = await this.preference.create({
         body: {
@@ -145,10 +183,35 @@ export class MercadoPagoService {
   }
 
   /**
+   * Bloque de loadtest: devuelve una preferencia simulada, determinística en
+   * su forma (siempre el mismo `initPoint` de juguete), sin tocar la red ni
+   * el SDK de MP. El `id` es único por llamada (no hace falta que un script
+   * de carga lo controle: nada del sistema depende de su valor).
+   */
+  private crearPreferenciaSimulada(externalReference: string): {
+    id: string;
+    initPoint: string;
+  } {
+    const id = `loadtest-pref-${randomUUID()}`;
+    this.logger.log(
+      `LOADTEST=true: preferencia simulada ${id} para external_reference=` +
+        `${externalReference} (sin llamar al SDK real de MP)`,
+    );
+    return { id, initPoint: 'https://loadtest.local/fake-checkout' };
+  }
+
+  /**
    * Consulta el pago REAL contra la API de MP.
    * Regla crítica: nunca confiar solo en el body del webhook.
+   *
+   * Bloque de loadtest: con `LOADTEST=true`, devuelve un pago simulado ya
+   * APROBADO en vez de consultar la API real — ver `obtenerPagoSimulado`.
    */
   async obtenerPago(paymentId: string): Promise<PagoMP | null> {
+    if (this.loadtest) {
+      return this.obtenerPagoSimulado(paymentId);
+    }
+
     try {
       const result = await this.payment.get({ id: paymentId });
       return result as unknown as PagoMP;
@@ -156,6 +219,75 @@ export class MercadoPagoService {
       this.logger.warn(`GET /v1/payments/${paymentId} → ${JSON.stringify(err)}`);
       return null;
     }
+  }
+
+  /**
+   * Bloque de loadtest: simula un pago ya APROBADO sin llamar a la API real
+   * de Mercado Pago (necesario porque el webhook/retorno de pago consultan
+   * `obtenerPago` para verificar el pago real antes de activar la silla —
+   * ver `PagosService.procesarNotificacionPago`).
+   *
+   * El script de carga necesita poder controlar el monto y el
+   * `external_reference` del pago simulado (para poder apuntar a una sesión
+   * real y ejercitar el chequeo de monto del Bloque B), así que ambos se
+   * codifican en el propio `paymentId` recibido, con el esquema:
+   *
+   *   loadtest:<externalReference>:<monto>
+   *
+   * `backend/loadtest/03-webhook.js` arma el `paymentId` (usado como
+   * `data.id`) exactamente con este formato — si se cambia este esquema acá,
+   * hay que actualizar ese script también.
+   *
+   * Si `paymentId` no sigue el esquema (por ejemplo, un id numérico suelto
+   * pasado a mano), igual se devuelve un pago aprobado, pero con
+   * `external_reference: null` y `transaction_amount: 0` — sirve para medir
+   * latencia/throughput del endpoint, pero no activa ninguna sesión real
+   * (ver `PagosService.procesarPagoVerificado`, que ignora los pagos sin
+   * `external_reference`).
+   */
+  private obtenerPagoSimulado(paymentId: string): PagoMP {
+    const parseado = this.parsearPaymentIdLoadtest(paymentId);
+    if (!parseado) {
+      this.logger.warn(
+        `LOADTEST=true: paymentId "${paymentId}" no sigue el esquema ` +
+          '"loadtest:<externalReference>:<monto>"; se simula un pago aprobado ' +
+          'sin external_reference (no va a activar ninguna sesión real).',
+      );
+    }
+    return {
+      id: this.idNumericoSimulado(paymentId),
+      status: 'approved',
+      transaction_amount: parseado?.monto ?? 0,
+      currency_id: 'ARS',
+      external_reference: parseado?.externalReference ?? null,
+    };
+  }
+
+  private parsearPaymentIdLoadtest(paymentId: string): PagoLoadtestParseado | null {
+    if (!paymentId.startsWith(MercadoPagoService.PREFIJO_LOADTEST)) return null;
+    const resto = paymentId.slice(MercadoPagoService.PREFIJO_LOADTEST.length);
+    const idxSeparador = resto.lastIndexOf(':');
+    if (idxSeparador === -1) return null;
+
+    const externalReference = resto.slice(0, idxSeparador);
+    const monto = Number(resto.slice(idxSeparador + 1));
+    if (!externalReference || !Number.isFinite(monto)) return null;
+
+    return { externalReference, monto };
+  }
+
+  /**
+   * `PagoMP.id` no se usa para nada crítico en el resto del sistema (la
+   * clave de idempotencia real es el propio `paymentId` string, guardado en
+   * `Pago.paymentIdMp`), así que alcanza con un número estable derivado del
+   * `paymentId` — no hace falta que sea criptográfico ni único de verdad.
+   */
+  private idNumericoSimulado(paymentId: string): number {
+    let hash = 0;
+    for (let i = 0; i < paymentId.length; i++) {
+      hash = (hash * 31 + paymentId.charCodeAt(i)) >>> 0;
+    }
+    return hash;
   }
 
   /**
