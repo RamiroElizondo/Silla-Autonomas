@@ -1,37 +1,86 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { obtenerEstadoSesion } from "@/lib/api";
+import { ApiError, obtenerEstadoSesion } from "@/lib/api";
+import { debeSondearAhora, proximoRetrasoMs } from "@/lib/polling";
 import type { EstadoSesionPublico } from "@/lib/tipos";
 
 /**
  * Estado en vivo de la sesión propia del cliente (mismo patrón que
- * useEstadoSilla). Durante un corte de energía el contador se congela: el
- * backend ya no está descontando ese tiempo, así que la pantalla tampoco.
+ * useEstadoSilla, incluido el sondeo con `setTimeout` autoreprogramado en
+ * vez de `setInterval` — ver el comentario ahí para el porqué). Durante un
+ * corte de energía el contador se congela: el backend ya no está
+ * descontando ese tiempo, así que la pantalla tampoco.
  */
-export function useEstadoSesion(sesionId: string | null, intervaloMs = 4000) {
+export function useEstadoSesion(
+  sesionId: string | null,
+  intervaloMs = 4000,
+  opciones: { pausarEnOculto?: boolean } = {},
+) {
+  const { pausarEnOculto = true } = opciones;
   const [sesion, setSesion] = useState<EstadoSesionPublico | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [segundos, setSegundos] = useState<number | null>(null);
+
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activoRef = useRef(true);
 
   const sondear = useCallback(async () => {
     if (!sesionId) return;
     try {
       const data = await obtenerEstadoSesion(sesionId);
+      if (!activoRef.current) return;
       setSesion(data);
       setSegundos(data.segundosRestantes);
       setError(null);
+      return proximoRetrasoMs({ intervaloBaseMs: intervaloMs, retryAfterMs: null });
     } catch (e) {
+      if (!activoRef.current) return;
       setError(e instanceof Error ? e.message : "No se pudo conectar");
+      const retryAfterMs = e instanceof ApiError ? (e.retryAfterMs ?? null) : null;
+      return proximoRetrasoMs({ intervaloBaseMs: intervaloMs, retryAfterMs });
     }
-  }, [sesionId]);
+  }, [sesionId, intervaloMs]);
 
   useEffect(() => {
     if (!sesionId) return;
-    sondear();
-    const id = setInterval(sondear, intervaloMs);
-    return () => clearInterval(id);
-  }, [sesionId, sondear, intervaloMs]);
+    activoRef.current = true;
+
+    function limpiarTimeout() {
+      if (timeoutRef.current !== null) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    }
+
+    async function ciclo() {
+      if (!activoRef.current) return;
+      const oculto = typeof document !== "undefined" && document.visibilityState === "hidden";
+      if (!debeSondearAhora({ oculto, pausarEnOculto })) return; // se retoma en visibilitychange
+      const espera = await sondear();
+      if (!activoRef.current) return;
+      timeoutRef.current = setTimeout(ciclo, espera ?? intervaloMs);
+    }
+
+    function alCambiarVisibilidad() {
+      if (document.visibilityState !== "visible") return;
+      limpiarTimeout();
+      ciclo();
+    }
+
+    ciclo();
+    if (typeof document !== "undefined" && pausarEnOculto) {
+      document.addEventListener("visibilitychange", alCambiarVisibilidad);
+    }
+
+    return () => {
+      activoRef.current = false;
+      limpiarTimeout();
+      if (typeof document !== "undefined" && pausarEnOculto) {
+        document.removeEventListener("visibilitychange", alCambiarVisibilidad);
+      }
+    };
+  }, [sesionId, sondear, intervaloMs, pausarEnOculto]);
 
   const segundosRef = useRef(segundos);
   segundosRef.current = segundos;

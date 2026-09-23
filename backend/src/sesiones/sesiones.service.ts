@@ -5,11 +5,14 @@ import {
   NotFoundException,
   OnApplicationBootstrap,
 } from '@nestjs/common';
-import { Credito, Silla } from '@prisma/client';
+import { Credito, Prisma, Silla } from '@prisma/client';
+import { CACHE_TTL_ESTADO_MS } from '../common/cache.config';
+import { TtlCache } from '../common/ttl-cache';
 import { CreditosService } from '../creditos/creditos.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from '../shelly/heartbeat.service';
 import { ShellyService } from '../shelly/shelly.service';
+import { SillasService } from '../sillas/sillas.service';
 
 /** Minutos que se reserva la silla mientras el cliente paga. */
 export const TIMEOUT_PAGO_MIN = 3;
@@ -53,6 +56,12 @@ export const RESTO_DESPRECIABLE_SEG = 60;
  */
 export const MAX_ESPERA_ENERGIA_SEG = 10 * 60;
 
+/** Fila de `sesion` tal como la cachea `estadoPublico` (Bloque C): incluye
+ * el `silla` mínimo que necesita la respuesta, nada más. */
+type SesionConSilla = Prisma.SesionGetPayload<{
+  include: { silla: { select: { id: true; nombre: true } } };
+}>;
+
 /**
  * Máquina de estados de la silla:
  *
@@ -71,12 +80,31 @@ export class SesionesService implements OnApplicationBootstrap {
   private readonly logger = new Logger(SesionesService.name);
   private timers = new Map<string, NodeJS.Timeout>();
 
+  /**
+   * Cache de estado público (Bloque C), keyed por sesionId. Se cachea la
+   * fila cruda (con el `silla` mínimo incluido), nunca la respuesta final:
+   * `segundosRestantes` depende de `Date.now()` y se recalcula en cada
+   * llamada a `estadoPublico`, incluso en un hit de cache.
+   */
+  private readonly cache = new TtlCache<SesionConSilla | null>(CACHE_TTL_ESTADO_MS);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly shelly: ShellyService,
     private readonly heartbeat: HeartbeatService,
     private readonly creditos: CreditosService,
+    private readonly sillas: SillasService,
   ) {}
+
+  /**
+   * Fuerza a que el próximo `estadoPublico(sesionId)` vuelva a pegarle a la
+   * base. Se llama después de cualquier escritura que cambie `estado`,
+   * `finProgramado`, `interrumpidaEn`, `cortes`, `segundosCompensados` o
+   * `motivoCierre` de esta sesión.
+   */
+  invalidarCache(sesionId: string): void {
+    this.cache.invalidar(sesionId);
+  }
 
   // ── Recuperación tras reinicio ────────────────────────────────
 
@@ -167,6 +195,7 @@ export class SesionesService implements OnApplicationBootstrap {
     if (reservada.count === 0) {
       throw new ConflictException('La silla no está libre en este momento');
     }
+    this.sillas.invalidarCache(silla.id);
 
     const sesion = await this.prisma.sesion.create({
       data: {
@@ -245,6 +274,8 @@ export class SesionesService implements OnApplicationBootstrap {
         data: { estado: 'EN_USO', finSesionActual: finProgramado },
       }),
     ]);
+    this.invalidarCache(sesionId);
+    this.sillas.invalidarCache(sesion.sillaId);
 
     this.programar(sesionId, finProgramado, () =>
       this.finalizarSesion(sesionId, 'tiempo_cumplido'),
@@ -270,6 +301,7 @@ export class SesionesService implements OnApplicationBootstrap {
       where: { id: sesionId },
       data: { estado: 'ESPERANDO_ENERGIA', pagadaEn: pagadaEn ?? undefined },
     });
+    this.invalidarCache(sesionId);
 
     const desde = pagadaEn ?? actualizada.creadaEn;
     const limite = new Date(desde.getTime() + MAX_ESPERA_ENERGIA_SEG * 1000);
@@ -329,6 +361,7 @@ export class SesionesService implements OnApplicationBootstrap {
       data: { interrumpidaEn: detectadoEn, cortes: { increment: 1 } },
     });
     if (res.count === 0) return false;
+    this.invalidarCache(sesionId);
     this.logger.warn(
       `Sesión ${sesionId}: corte de energía detectado a las ${detectadoEn.toISOString()}`,
     );
@@ -388,11 +421,13 @@ export class SesionesService implements OnApplicationBootstrap {
       },
     });
     if (reclamada.count === 0) return false;
+    this.invalidarCache(sesionId);
 
     await this.prisma.silla.update({
       where: { id: sesion.sillaId },
       data: { finSesionActual: nuevoFin },
     });
+    this.sillas.invalidarCache(sesion.sillaId);
 
     this.programar(sesionId, nuevoFin, () =>
       this.finalizarSesion(sesionId, 'tiempo_cumplido'),
@@ -545,6 +580,12 @@ export class SesionesService implements OnApplicationBootstrap {
    * Cierre común: sesión, silla y — si vino de la cola — el turno enlazado.
    * Si el turno no se cierra, el cliente queda "EN_USO" para siempre y lo
    * seguimos mandando a esa pantalla cada vez que escanea un QR.
+   *
+   * Nota Bloque C: acá también se cierra el `turno` enlazado (si lo hay),
+   * pero este servicio no invalida la cache de turno de ColaService —
+   * SesionesModule no puede depender de ColaModule sin crear un ciclo
+   * (ColaModule ya depende de SesionesModule). Ese turno queda cubierto
+   * solo por el TTL corto de la cache (ver informe del Bloque C).
    */
   private async cerrarYLiberar(
     sesionId: string,
@@ -571,6 +612,7 @@ export class SesionesService implements OnApplicationBootstrap {
       },
     });
     if (reclamada.count === 0) return false;
+    this.invalidarCache(sesionId);
 
     await this.prisma.$transaction([
       // La silla se libera solo si sigue tomada por ESTA sesión.
@@ -587,6 +629,7 @@ export class SesionesService implements OnApplicationBootstrap {
         },
       }),
     ]);
+    this.sillas.invalidarCache(sillaId);
     return true;
   }
 
@@ -611,7 +654,10 @@ export class SesionesService implements OnApplicationBootstrap {
           interrumpidaEn: null,
         },
       });
+      this.invalidarCache(activa.id);
       // Mismo motivo que en finalizarSesion: si venía de la cola, cerrarla.
+      // (Igual nota que en cerrarYLiberar: la cache de turno de ColaService
+      // no se invalida acá para no crear un ciclo de módulos.)
       await this.prisma.turno.updateMany({
         where: { sesionId: activa.id, estado: 'EN_USO' },
         data: {
@@ -625,6 +671,7 @@ export class SesionesService implements OnApplicationBootstrap {
       where: { id: sillaId },
       data: { estado: 'LIBRE', finSesionActual: null },
     });
+    this.sillas.invalidarCache(sillaId);
     this.logger.warn(`Parada de emergencia en silla ${silla.nombre}`);
     return { ok: true, sillaId, sesionCancelada: activa?.id ?? null };
   }
@@ -665,6 +712,7 @@ export class SesionesService implements OnApplicationBootstrap {
       },
     });
     if (expirada.count === 0) return;
+    this.invalidarCache(sesionId);
 
     const sesion = await this.prisma.sesion.findUnique({ where: { id: sesionId } });
     if (sesion) {
@@ -672,6 +720,7 @@ export class SesionesService implements OnApplicationBootstrap {
         where: { id: sesion.sillaId, estado: 'PAGO_PENDIENTE' },
         data: { estado: 'LIBRE' },
       });
+      this.sillas.invalidarCache(sesion.sillaId);
     }
     this.logger.log(`Sesión ${sesionId} expirada sin pago, silla liberada`);
   }
@@ -683,12 +732,21 @@ export class SesionesService implements OnApplicationBootstrap {
    * de "tu masaje". La landing sondea el estado de la SILLA, que no alcanza
    * acá: si un corte cierra la sesión, la silla vuelve a LIBRE y el cliente
    * no se enteraría de que le quedó un crédito.
+   *
+   * Bloque C: la fila de `sesion` (con el `silla` mínimo incluido) se
+   * cachea; `segundosRestantes` se recalcula siempre en vivo a partir de
+   * `finProgramado`, nunca se cachea el número ya calculado. El crédito NO
+   * se cachea: `creditos.porSesion` es un único `findFirst` por columna
+   * indexada (`sesionOrigenId`), tan barato como para que agregarle otra
+   * cache no valga la complejidad extra de mantener dos TTLs sincronizados.
    */
   async estadoPublico(sesionId: string) {
-    const sesion = await this.prisma.sesion.findUnique({
-      where: { id: sesionId },
-      include: { silla: { select: { id: true, nombre: true } } },
-    });
+    const sesion = await this.cache.obtenerOCargar(sesionId, () =>
+      this.prisma.sesion.findUnique({
+        where: { id: sesionId },
+        include: { silla: { select: { id: true, nombre: true } } },
+      }),
+    );
     if (!sesion) throw new NotFoundException('Sesión no encontrada');
 
     const segundosRestantes =

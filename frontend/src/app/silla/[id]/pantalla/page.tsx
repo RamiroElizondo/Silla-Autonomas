@@ -15,7 +15,10 @@ export default function PantallaTV({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const { estado, segundos } = useEstadoSilla(id, 3000);
+  // La pantalla TV es un display de pared: nunca hay que pausar el
+  // sondeo cuando el navegador la considera "oculta" (aunque en un
+  // kiosco fullscreen sin cambio de pestaña eso rara vez dispara).
+  const { estado, segundos } = useEstadoSilla(id, 3000, { pausarEnOculto: false });
   const [urlLanding, setUrlLanding] = useState("");
 
   useEffect(() => {

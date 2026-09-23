@@ -9,11 +9,16 @@ import type {
   EstadoSesionPublico,
   EstadoTurnoPublico,
   HistorialRespuesta,
+  PagoRevision,
+  ResolverPagoPayload,
   ResultadoPrueba,
   SillaAdmin,
   TurnoCheckoutRespuesta,
+  UsuarioAdmin,
   VerificacionDispositivo,
 } from "./tipos";
+
+import { parsearRetryAfter } from "./polling";
 
 // Same-origin: todo pasa por el proxy /api del propio Next.js (ver
 // src/app/api/[...path]/route.ts), que reenvía al backend real. Así el
@@ -21,31 +26,55 @@ import type {
 // exponer el backend con su propio túnel.
 const API_URL = "/api";
 
+/**
+ * Header que el proxy exige en todo no-GET a /api/admin/* (protección CSRF,
+ * ver route.ts): un <form> cross-site no puede agregarlo, una fetch
+ * same-origin sí.
+ */
+const CSRF_HEADER = "X-Requested-With";
+const CSRF_HEADER_VALOR = "sillas-admin";
+
 class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /**
+     * Milisegundos que pidió esperar el header `Retry-After` de un 429, o
+     * `undefined` si no vino (o la respuesta no fue un 429). Lo usan los
+     * hooks de polling para atrasar el próximo sondeo (`proximoRetrasoMs`)
+     * en vez de reintentar al ritmo normal.
+     */
+    public retryAfterMs?: number,
   ) {
     super(message);
   }
 }
 
-async function request<T>(
-  path: string,
-  init: RequestInit = {},
-  token?: string,
-): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const metodo = (init.method ?? "GET").toUpperCase();
+  const esEscrituraAdmin = path.startsWith("/admin") && metodo !== "GET";
+
   const res = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(esEscrituraAdmin ? { [CSRF_HEADER]: CSRF_HEADER_VALOR } : {}),
       ...init.headers,
     },
+    // La sesión admin vive en una cookie httpOnly (ver route.ts): el
+    // navegador la manda solo porque el pedido es same-origin, no hace
+    // falta "Authorization" ni tocar nada acá para eso.
     cache: "no-store",
   });
 
   if (!res.ok) {
+    // Leído ANTES de tirar: una vez que se lanza la excepción no hay forma
+    // de volver a mirar la respuesta.
+    const retryAfterMs =
+      res.status === 429
+        ? (parsearRetryAfter(res.headers.get("retry-after")) ?? undefined)
+        : undefined;
+
     let mensaje = `Error ${res.status}`;
     try {
       const body = await res.json();
@@ -56,7 +85,7 @@ async function request<T>(
     } catch {
       /* respuesta sin cuerpo JSON */
     }
-    throw new ApiError(res.status, mensaje);
+    throw new ApiError(res.status, mensaje, retryAfterMs);
   }
   // Tolerar respuestas sin cuerpo (ej: acciones que devuelven 200 vacío)
   const texto = await res.text();
@@ -116,24 +145,39 @@ export function cancelarPago(sillaId: string, sesionId: string) {
 }
 
 /* ---------- Admin ---------- */
+//
+// El JWT ya no pasa por el navegador (Bloque A del hardening): vive en una
+// cookie httpOnly que pone y lee el proxy (route.ts). Estas funciones no
+// reciben ni devuelven ningún token; la sesión se consulta con
+// `verificarSesion()` (GET /admin/auth/me) y se cierra con `cerrarSesion()`.
 
-export function login(email: string, password: string) {
-  return request<{ token: string }>(`/admin/auth/login`, {
+export async function login(email: string, password: string): Promise<void> {
+  await request<{ ok: boolean }>(`/admin/auth/login`, {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
 }
 
-export function obtenerSillasAdmin(token: string) {
-  return request<SillaAdmin[]>(`/admin/sillas`, {}, token);
+/** null si no hay sesión (o venció/fue revocada); tira en cualquier otro error. */
+export async function verificarSesion(): Promise<UsuarioAdmin | null> {
+  try {
+    return await request<UsuarioAdmin>(`/admin/auth/me`);
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) return null;
+    throw e;
+  }
 }
 
-export function obtenerHistorial(token: string, take = 50, skip = 0) {
-  return request<HistorialRespuesta>(
-    `/admin/sesiones?take=${take}&skip=${skip}`,
-    {},
-    token,
-  );
+export function cerrarSesion() {
+  return request<{ ok: boolean }>(`/admin/auth/logout`, { method: "POST" });
+}
+
+export function obtenerSillasAdmin() {
+  return request<SillaAdmin[]>(`/admin/sillas`);
+}
+
+export function obtenerHistorial(take = 50, skip = 0) {
+  return request<HistorialRespuesta>(`/admin/sesiones?take=${take}&skip=${skip}`);
 }
 
 /**
@@ -141,52 +185,61 @@ export function obtenerHistorial(token: string, take = 50, skip = 0) {
  * La Cloud Control API v2 no permite listar los dispositivos de la cuenta,
  * así que el alta de sillas se hace ingresando el ID y validándolo acá.
  */
-export function verificarDispositivo(token: string, deviceId: string) {
+export function verificarDispositivo(deviceId: string) {
   return request<VerificacionDispositivo>(
     `/admin/shelly/dispositivos/${encodeURIComponent(deviceId)}`,
-    {},
-    token,
   );
 }
 
-export function crearSilla(token: string, payload: CrearSillaPayload) {
-  return request<SillaAdmin>(
-    `/admin/sillas`,
-    { method: "POST", body: JSON.stringify(payload) },
-    token,
-  );
+export function crearSilla(payload: CrearSillaPayload) {
+  return request<SillaAdmin>(`/admin/sillas`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
-export function actualizarSilla(
-  token: string,
-  sillaId: string,
-  payload: ActualizarSillaPayload,
-) {
-  return request<SillaAdmin>(
-    `/admin/sillas/${sillaId}`,
-    { method: "PATCH", body: JSON.stringify(payload) },
-    token,
-  );
+export function actualizarSilla(sillaId: string, payload: ActualizarSillaPayload) {
+  return request<SillaAdmin>(`/admin/sillas/${sillaId}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
 }
 
 /** Vales emitidos por cortes de energía. */
-export function obtenerCreditos(token: string, take = 50) {
-  return request<CreditoAdmin[]>(`/admin/creditos?take=${take}`, {}, token);
+export function obtenerCreditos(take = 50) {
+  return request<CreditoAdmin[]>(`/admin/creditos?take=${take}`);
 }
 
 /** Prueba de conexión con el Shelly de la silla (estado al momento). */
-export function probarSilla(token: string, sillaId: string) {
-  return request<ResultadoPrueba>(`/admin/sillas/${sillaId}/probar`, {}, token);
+export function probarSilla(sillaId: string) {
+  return request<ResultadoPrueba>(`/admin/sillas/${sillaId}/probar`);
 }
 
 /** Activación manual sin pago (cortesía / prueba). */
-export function activarManual(token: string, sillaId: string) {
-  return request(`/admin/sillas/${sillaId}/activar`, { method: "POST" }, token);
+export function activarManual(sillaId: string) {
+  return request(`/admin/sillas/${sillaId}/activar`, { method: "POST" });
 }
 
 /** Parada de emergencia: corta la sesión activa y apaga el relé. */
-export function pararEmergencia(token: string, sillaId: string) {
-  return request(`/admin/sillas/${sillaId}/detener`, { method: "POST" }, token);
+export function pararEmergencia(sillaId: string) {
+  return request(`/admin/sillas/${sillaId}/detener`, { method: "POST" });
+}
+
+/**
+ * Pagos aprobados que no activaron ningún servicio, o que Mercado Pago
+ * marcó refunded/charged_back/cancelled después de aprobados (Bloque B).
+ * Solo trae los pendientes de resolver.
+ */
+export function obtenerPagosRevision(take = 50) {
+  return request<PagoRevision[]>(`/admin/pagos/revision?take=${take}`);
+}
+
+/** Resuelve a mano un pago marcado para revisión. Idempotente. */
+export function resolverPago(pagoId: string, payload: ResolverPagoPayload) {
+  return request<PagoRevision>(`/admin/pagos/${pagoId}/resolver`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
 }
 
 /* ---------- Cola compartida ---------- */

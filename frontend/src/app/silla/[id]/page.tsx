@@ -8,6 +8,7 @@ import { FormCodigoCredito } from "@/components/FormCodigoCredito";
 import { TurnstileWidget } from "@/components/TurnstileWidget";
 import { formatearTimer, useEstadoSilla } from "@/hooks/useEstadoSilla";
 import { iniciarCheckout, obtenerResumenCola, unirseCola } from "@/lib/api";
+import { debeSondearAhora } from "@/lib/polling";
 import type { ColaResumen } from "@/lib/tipos";
 
 const TURNSTILE_REQUERIDO = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
@@ -54,7 +55,13 @@ export default function LandingSilla({
   useEffect(() => {
     if (!mostrarCola) return;
     let cancelado = false;
+
     async function cargar() {
+      // Mismo criterio de pausa-en-oculto que los hooks de useEstado* (ver
+      // su comentario): no tiene sentido sondear la cola si nadie está
+      // mirando esta pestaña en este momento.
+      const oculto = typeof document !== "undefined" && document.visibilityState === "hidden";
+      if (!debeSondearAhora({ oculto, pausarEnOculto: true })) return;
       try {
         const data = await obtenerResumenCola();
         if (!cancelado) setCola(data);
@@ -62,11 +69,18 @@ export default function LandingSilla({
         // silencioso: no bloquea la vista principal
       }
     }
+
+    function alCambiarVisibilidad() {
+      if (document.visibilityState === "visible") cargar();
+    }
+
     cargar();
     const intervalo = setInterval(cargar, 5000);
+    document.addEventListener("visibilitychange", alCambiarVisibilidad);
     return () => {
       cancelado = true;
       clearInterval(intervalo);
+      document.removeEventListener("visibilitychange", alCambiarVisibilidad);
     };
   }, [mostrarCola]);
 
