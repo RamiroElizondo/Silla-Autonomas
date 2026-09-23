@@ -11,12 +11,10 @@ import type { SillaAdmin, VerificacionDispositivo } from "@/lib/tipos";
  * El ID está en la app Shelly (Device info) y en la etiqueta del equipo.
  */
 export function FormSilla({
-  token,
   silla,
   onListo,
   onCancelar,
 }: {
-  token: string;
   /** Si viene, es edición; si no, alta. */
   silla?: SillaAdmin;
   onListo: () => void;
@@ -44,7 +42,7 @@ export function FormSilla({
     setVerificacion(null);
     setErrorVerificacion(null);
     try {
-      setVerificacion(await verificarDispositivo(token, id));
+      setVerificacion(await verificarDispositivo(id));
     } catch (e) {
       setErrorVerificacion(
         e instanceof Error ? e.message : "No se pudo consultar Shelly Cloud",
@@ -66,9 +64,9 @@ export function FormSilla({
     };
     try {
       if (silla) {
-        await actualizarSilla(token, silla.id, payload);
+        await actualizarSilla(silla.id, payload);
       } else {
-        await crearSilla(token, payload);
+        await crearSilla(payload);
       }
       onListo();
     } catch (err) {

@@ -11,12 +11,15 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { PagosService } from '../pagos/pagos.service';
+import { ResolverPagoDto } from '../pagos/dto/resolver-pago.dto';
 import { SesionesService } from '../sesiones/sesiones.service';
 import { HeartbeatService } from '../shelly/heartbeat.service';
 import { AdminService } from './admin.service';
 import { ActivarManualDto, ActualizarSillaDto } from './dto/actualizar-silla.dto';
 import { CrearSillaDto } from './dto/crear-silla.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { ParseIntMinPipe } from '../common/parse-int-min.pipe';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard)
@@ -25,6 +28,7 @@ export class AdminController {
     private readonly admin: AdminService,
     private readonly sesiones: SesionesService,
     private readonly heartbeat: HeartbeatService,
+    private readonly pagos: PagosService,
   ) {}
 
   /**
@@ -56,15 +60,17 @@ export class AdminController {
 
   @Get('sesiones')
   historial(
-    @Query('take', new DefaultValuePipe(50), ParseIntPipe) take: number,
-    @Query('skip', new DefaultValuePipe(0), ParseIntPipe) skip: number,
+    @Query('take', new DefaultValuePipe(50), ParseIntPipe, new ParseIntMinPipe(1)) take: number,
+    @Query('skip', new DefaultValuePipe(0), ParseIntPipe, new ParseIntMinPipe(0)) skip: number,
   ) {
     return this.admin.sesiones(Math.min(take, 200), skip);
   }
 
   /** Vales por cortes de energía: cuáles se emitieron y cuáles se usaron. */
   @Get('creditos')
-  creditos(@Query('take', new DefaultValuePipe(50), ParseIntPipe) take: number) {
+  creditos(
+    @Query('take', new DefaultValuePipe(50), ParseIntPipe, new ParseIntMinPipe(1)) take: number,
+  ) {
     return this.admin.listarCreditos(Math.min(take, 200));
   }
 
@@ -99,5 +105,27 @@ export class AdminController {
   @Post('sillas/:id/detener')
   detener(@Param('id', ParseUUIDPipe) id: string) {
     return this.sesiones.detenerEmergencia(id);
+  }
+
+  /**
+   * Pagos aprobados que no llegaron a activar ningún servicio, o que
+   * Mercado Pago marcó refunded/charged_back/cancelled después de haber
+   * sido aprobados (Bloque B, hallazgo MEDIO). Solo los pendientes de
+   * resolver.
+   */
+  @Get('pagos/revision')
+  pagosParaRevision(
+    @Query('take', new DefaultValuePipe(50), ParseIntPipe, new ParseIntMinPipe(1)) take: number,
+  ) {
+    return this.pagos.listarPagosParaRevision(Math.min(take, 200));
+  }
+
+  /** Resuelve a mano un pago marcado para revisión. Idempotente. */
+  @Post('pagos/:id/resolver')
+  resolverPago(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ResolverPagoDto,
+  ) {
+    return this.pagos.resolverPagoParaRevision(id, dto);
   }
 }
