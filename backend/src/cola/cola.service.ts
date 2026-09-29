@@ -181,24 +181,31 @@ export class ColaService implements OnApplicationBootstrap {
     }
 
     const ipHash = this.ipHash.hash(ipCliente);
-    const pendientes = await contarReservasPendientesPorIp(this.prisma, ipHash);
-    if (pendientes >= MAX_PENDIENTES_POR_IP) {
-      throw new HttpException(
-        'Ya tenés varias reservas esperando pago. Esperá a que se confirmen ' +
-          'o venzan antes de intentar de nuevo.',
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
-    }
-
-    const externalReference = `turno:${randomUUID()}`;
-    const turno = await this.prisma.turno.create({
-      data: {
-        externalReference,
-        monto: silla.precio,
-        duracionMin: silla.duracionMin,
-        ipHash,
-      },
+    // El chequeo del tope y la creación del turno van en UNA transacción con
+    // un advisory lock por ip_hash: sin eso, N pedidos simultáneos de la misma
+    // IP pasan todos el count() antes de que exista el primer turno y
+    // esquivan MAX_PENDIENTES_POR_IP. El lock se libera solo al terminar la
+    // transacción y solo serializa pedidos de la MISMA IP.
+    const turno = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${ipHash}))`;
+      const pendientes = await contarReservasPendientesPorIp(tx as any, ipHash);
+      if (pendientes >= MAX_PENDIENTES_POR_IP) {
+        throw new HttpException(
+          'Ya tenés varias reservas esperando pago. Esperá a que se confirmen ' +
+            'o venzan antes de intentar de nuevo.',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+      return tx.turno.create({
+        data: {
+          externalReference: `turno:${randomUUID()}`,
+          monto: silla.precio,
+          duracionMin: silla.duracionMin,
+          ipHash,
+        },
+      });
     });
+    const externalReference = turno.externalReference;
 
     const limite = new Date(Date.now() + TIMEOUT_PAGO_TURNO_MIN * 60_000);
     this.programar(turno.id, limite, () => this.expirarEsperaPago(turno.id));
@@ -423,6 +430,22 @@ export class ColaService implements OnApplicationBootstrap {
     });
   }
 
+  /** Segundos que faltan para que termine la sesión en curso más próxima a vencer. */
+  private async segundosHastaProximaSilla(): Promise<number | null> {
+    try {
+      const silla = await this.prisma.silla.findFirst({
+        where: { estado: 'EN_USO', finSesionActual: { not: null } },
+        orderBy: { finSesionActual: 'asc' },
+        select: { finSesionActual: true },
+      });
+      if (!silla?.finSesionActual) return null;
+      return Math.max(0, Math.round((silla.finSesionActual.getTime() - Date.now()) / 1000));
+    } catch {
+      // Dato informativo: si falla no debe romper el polling del turno.
+      return null;
+    }
+  }
+
   /**
    * Estado de un turno puntual, para el polling de /cola/[turnoId].
    *
@@ -459,6 +482,14 @@ export class ColaService implements OnApplicationBootstrap {
       ]);
     }
 
+    // Para quien espera: cuánto falta para que termine la sesión en curso
+    // más cercana a vencer (la próxima silla en liberarse). Sirve para que el
+    // cliente vea cómo va la cola. Solo tiene sentido si no hay sillas libres.
+    let segundosProximaSilla: number | null = null;
+    if (turno.estado === 'EN_COLA' && sillasLibres === 0) {
+      segundosProximaSilla = await this.segundosHastaProximaSilla();
+    }
+
     let segundosVentana: number | null = null;
     if (turno.estado === 'ASIGNADO' && turno.asignadoEn) {
       const limite = turno.asignadoEn.getTime() + VENTANA_CONFIRMACION_MIN * 60_000;
@@ -488,6 +519,7 @@ export class ColaService implements OnApplicationBootstrap {
       sillaAsignada: turno.silla ? { id: turno.silla.id, nombre: turno.silla.nombre } : null,
       segundosVentana,
       segundosRestantesSesion,
+      segundosProximaSilla,
       duracionMin: turno.duracionMin,
       sesionEstado: turno.sesion?.estado ?? null,
       interrumpida: turno.sesion?.interrumpidaEn != null,

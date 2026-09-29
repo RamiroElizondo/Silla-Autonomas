@@ -42,6 +42,8 @@ function crearServicio(
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
   };
+  prisma.$transaction = jest.fn((fn: any) => fn(prisma));
+  prisma.$executeRaw = jest.fn().mockResolvedValue(0);
   const mp: any = {
     crearPreferencia: jest.fn().mockResolvedValue({ id: 'p1', initPoint: 'https://mp.test/turno' }),
   };
@@ -813,6 +815,24 @@ describe('ColaService.estadoTurno — cálculos en vivo según el estado', () =>
   afterEach(() => {
     jest.clearAllTimers();
     jest.useRealTimers();
+  });
+
+  it('turno EN_COLA sin sillas libres: expone los segundos hasta que se libere la próxima silla', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.turno.findUnique = jest.fn().mockResolvedValue({
+      id: 'turno-1', codigo: 'ABC-1234', estado: 'EN_COLA', pagadoEn: new Date(),
+      asignadoEn: null, duracionMin: 10, motivoCierre: null, sesionId: null, silla: null, sesion: null,
+    });
+    prisma.turno.count = jest.fn().mockResolvedValue(0);
+    prisma.silla.count = jest.fn().mockResolvedValue(0);
+    prisma.silla.findFirst = jest
+      .fn()
+      .mockResolvedValue({ finSesionActual: new Date(Date.now() + 90_000) });
+
+    const estado = await servicio.estadoTurno('turno-1');
+
+    expect(estado.segundosProximaSilla).toBeGreaterThan(80);
+    expect(estado.segundosProximaSilla).toBeLessThanOrEqual(90);
   });
 
   it('turno EN_COLA con pagadoEn: calcula posición en la fila y sillas libres', async () => {
