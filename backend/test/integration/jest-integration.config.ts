@@ -16,6 +16,9 @@ const config: Config = {
     // Ver el comentario en jest.config.ts sobre isolatedModules.
     '^.+\\.(t|j)s$': ['ts-jest', { isolatedModules: true }],
   },
+  // Serial: todos los archivos comparten la MISMA base y ColaService asigna
+  // cualquier silla LIBRE de la base, así que en paralelo se pisarían.
+  maxWorkers: 1,
   moduleFileExtensions: ['js', 'json', 'ts'],
 };
 
