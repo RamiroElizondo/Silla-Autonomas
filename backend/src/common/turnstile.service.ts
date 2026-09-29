@@ -62,6 +62,7 @@ export class TurnstileService {
       };
       if (!data.success) {
         const motivo = (data['error-codes'] ?? []).join(',') || 'no_exitoso';
+        this.logger.warn(`Turnstile rechazó el token: ${motivo}`);
         return { ok: false, motivo };
       }
       return { ok: true };
