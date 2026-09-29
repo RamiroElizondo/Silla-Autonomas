@@ -106,6 +106,7 @@ jobs:
           context: backend
           push: true
           tags: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           cache-from: type=gha,scope=backend
           cache-to: type=gha,scope=backend,mode=max
 
@@ -115,6 +116,7 @@ jobs:
           context: frontend
           push: true
           tags: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}
+          labels: org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
           build-args: |
             NEXT_PUBLIC_TURNSTILE_SITE_KEY=${{ vars.TURNSTILE_SITE_KEY }}
           cache-from: type=gha,scope=frontend
