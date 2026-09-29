@@ -1,34 +1,5 @@
 import type { NextConfig } from "next";
 
-/**
- * Content-Security-Policy (Bloque A del hardening).
- *
- * La fuente Outfit va self-hosted vía @fontsource (ver layout.tsx: importa
- * los .css del paquete, que Next empaqueta como propios) — no hace falta
- * permitir fonts.googleapis.com, todo sale de 'self'.
- *
- * `style-src` necesita 'unsafe-inline' porque `/silla/[id]/pantalla` usa un
- * `style={{ width }}` inline para la barra de progreso (React lo vuelca como
- * atributo `style` en el DOM). Es la única razón; si en algún momento se
- * saca ese inline style (variable CSS + clase), se puede sacar también de acá.
- *
- * `frame-ancestors 'none'` en todas las rutas: ninguna vista de este
- * proyecto (ni siquiera la pantalla TV) se abre embebida en un iframe, así
- * que no hace falta una excepción.
- */
-const CSP = [
-  "default-src 'self'",
-  "script-src 'self' https://challenges.cloudflare.com",
-  "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
-  "font-src 'self'",
-  "connect-src 'self' https://challenges.cloudflare.com",
-  "frame-src https://challenges.cloudflare.com",
-  "frame-ancestors 'none'",
-  "base-uri 'none'",
-  "form-action 'self'",
-  "object-src 'none'",
-].join("; ");
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
@@ -49,7 +20,7 @@ const nextConfig: NextConfig = {
       {
         source: "/:path*",
         headers: [
-          { key: "Content-Security-Policy", value: CSP },
+          // La CSP (con nonce por request) la setea src/middleware.ts.
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
         ],
