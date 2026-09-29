@@ -76,14 +76,14 @@ export function FormSilla({
   }
 
   const claseInput =
-    "rounded-xl border border-borde bg-crema px-3.5 py-2.5 text-sm outline-none placeholder:text-arena focus:border-borde-fuerte";
+    "rounded-xl border border-borde bg-crema px-3.5 py-2.5 text-base outline-none sm:text-sm placeholder:text-arena focus:border-borde-fuerte";
 
   const dev = verificacion?.dispositivo;
 
   return (
     <form
       onSubmit={guardar}
-      className="rounded-xl border border-borde bg-marfil p-5"
+      className="rounded-xl border border-borde bg-marfil p-4 sm:p-5"
     >
       <p className="text-[15px] font-medium">
         {silla ? `Editar ${silla.nombre}` : "Nueva silla"}
@@ -147,13 +147,13 @@ export function FormSilla({
             placeholder="e4b063f1a2c3"
             spellCheck={false}
             autoComplete="off"
-            className={`${claseInput} flex-1 font-mono`}
+            className={`${claseInput} min-w-0 flex-1 font-mono`}
           />
           <button
             type="button"
             onClick={verificar}
             disabled={verificando || !deviceId.trim()}
-            className="rounded-[10px] border border-borde-fuerte px-4 py-2 text-[13px] text-tinta-suave transition hover:bg-panal disabled:opacity-60"
+            className="inline-flex min-h-11 items-center whitespace-nowrap rounded-[10px] border border-borde-fuerte px-4 py-2 text-[13px] text-tinta-suave transition hover:bg-panal disabled:opacity-60 sm:min-h-0"
           >
             {verificando ? "Verificando…" : "Verificar"}
           </button>
@@ -199,18 +199,18 @@ export function FormSilla({
         </p>
       )}
 
-      <div className="mt-4 flex gap-2.5">
+      <div className="mt-4 flex flex-col gap-2.5 sm:flex-row">
         <button
           type="submit"
           disabled={guardando}
-          className="rounded-[10px] bg-terracota px-4 py-2 text-[13px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60"
+          className="min-h-11 rounded-[10px] bg-terracota px-4 py-2 text-[13px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60 sm:min-h-0"
         >
           {guardando ? "Guardando…" : silla ? "Guardar cambios" : "Crear silla"}
         </button>
         <button
           type="button"
           onClick={onCancelar}
-          className="rounded-[10px] border border-borde-fuerte px-4 py-2 text-[13px] text-tinta-suave transition hover:bg-panal"
+          className="min-h-11 rounded-[10px] border border-borde-fuerte px-4 py-2 text-[13px] text-tinta-suave transition hover:bg-panal sm:min-h-0"
         >
           Cancelar
         </button>

@@ -114,6 +114,7 @@ export interface ResultadoPrueba {
 
 export type EstadoSesion =
   | "PENDIENTE"
+  | "ESPERANDO_CONFIRMACION"
   | "ESPERANDO_ENERGIA"
   | "ACTIVA"
   | "COMPLETADA"
@@ -127,6 +128,8 @@ export interface EstadoSesionPublico {
   sillaNombre: string;
   duracionMin: number;
   segundosRestantes: number | null;
+  /** ESPERANDO_CONFIRMACION: lo que le queda al cliente para sentarse y confirmar. */
+  segundosVentana: number | null;
   /** Corte de energía en curso: la silla está apagada y el reloj, congelado. */
   interrumpida: boolean;
   cortes: number;
@@ -140,6 +143,18 @@ export interface CanjeRespuesta {
   turnoId: string;
   codigo: string;
   duracionMin: number;
+}
+
+/** Item de GET /admin/cola: cliente que pagó y espera (o no confirmó) su silla. */
+export interface TurnoColaAdmin {
+  id: string;
+  codigo: string | null;
+  estado: "EN_COLA" | "ASIGNADO";
+  monto: number;
+  duracionMin: number;
+  pagadoEn: string | null;
+  asignadoEn: string | null;
+  silla: { nombre: string } | null;
 }
 
 /** Item de GET /admin/sesiones */
@@ -173,6 +188,12 @@ export interface CreditoAdmin {
   canjeadoEn: string | null;
   sesionOrigen: { id: string; silla: { nombre: string } } | null;
   turnoGenerado: { id: string; codigo: string | null; estado: EstadoTurno } | null;
+}
+
+/** Respuesta paginada de GET /admin/creditos */
+export interface CreditosRespuesta {
+  items: CreditoAdmin[];
+  total: number;
 }
 
 export interface HistorialRespuesta {
@@ -238,6 +259,8 @@ export interface EstadoTurnoPublico {
   sillaAsignada: { id: string; nombre: string } | null;
   segundosVentana: number | null;
   segundosRestantesSesion: number | null;
+  /** Para EN_COLA sin sillas libres: lo que falta para que se libere la primera silla. */
+  segundosProximaSilla: number | null;
   duracionMin: number;
   sesionEstado: EstadoSesion | null;
   interrumpida: boolean;

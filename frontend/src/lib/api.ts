@@ -4,7 +4,7 @@ import type {
   CheckoutRespuesta,
   ColaResumen,
   CrearSillaPayload,
-  CreditoAdmin,
+  CreditosRespuesta,
   EstadoPublico,
   EstadoSesionPublico,
   EstadoTurnoPublico,
@@ -13,6 +13,7 @@ import type {
   ResolverPagoPayload,
   ResultadoPrueba,
   SillaAdmin,
+  TurnoColaAdmin,
   TurnoCheckoutRespuesta,
   UsuarioAdmin,
   VerificacionDispositivo,
@@ -107,6 +108,13 @@ export function obtenerEstadoSesion(sesionId: string) {
   return request<EstadoSesionPublico>(`/sesiones/${sesionId}/estado`);
 }
 
+/** El cliente confirma que se sentó: enciende la silla que ya pagó. */
+export function confirmarSesion(sesionId: string) {
+  return request<{ ok: boolean; sillaId: string }>(`/sesiones/${sesionId}/confirmar`, {
+    method: "POST",
+  });
+}
+
 export function iniciarCheckout(sillaId: string, turnstileToken?: string | null) {
   // Le pasamos al backend el origin público actual (el dominio del túnel,
   // o localhost en dev) para que arme los back_urls de Mercado Pago, y el
@@ -176,6 +184,10 @@ export function obtenerSillasAdmin() {
   return request<SillaAdmin[]>(`/admin/sillas`);
 }
 
+export function obtenerColaAdmin() {
+  return request<TurnoColaAdmin[]>(`/admin/cola`);
+}
+
 export function obtenerHistorial(take = 50, skip = 0) {
   return request<HistorialRespuesta>(`/admin/sesiones?take=${take}&skip=${skip}`);
 }
@@ -206,8 +218,8 @@ export function actualizarSilla(sillaId: string, payload: ActualizarSillaPayload
 }
 
 /** Vales emitidos por cortes de energía. */
-export function obtenerCreditos(take = 50) {
-  return request<CreditoAdmin[]>(`/admin/creditos?take=${take}`);
+export function obtenerCreditos(take = 50, skip = 0) {
+  return request<CreditosRespuesta>(`/admin/creditos?take=${take}&skip=${skip}`);
 }
 
 /** Prueba de conexión con el Shelly de la silla (estado al momento). */

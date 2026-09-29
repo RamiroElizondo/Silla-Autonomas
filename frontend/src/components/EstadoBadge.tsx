@@ -5,7 +5,7 @@ const config: Record<
   { texto: string; fondo: string; texto_color: string; punto: string }
 > = {
   LIBRE: {
-    texto: "Libre ahora",
+    texto: "Libre",
     fondo: "bg-salvia-claro",
     texto_color: "text-salvia-oscuro",
     punto: "bg-salvia",
