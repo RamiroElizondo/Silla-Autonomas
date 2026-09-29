@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { cancelarTurno } from "@/lib/api";
 
@@ -10,6 +10,20 @@ export default function Fracaso({
   params: Promise<{ turnoId: string }>;
 }) {
   const { turnoId } = use(params);
+
+  // Vista de la silla desde la que escaneó el QR (la guarda /silla/[id] al
+  // pagar). Sin dato (otra pestaña, storage limpio) caemos a la home.
+  const [hrefReintento, setHrefReintento] = useState("/");
+
+  useEffect(() => {
+    const sillaOrigen = sessionStorage.getItem(`sillaOrigen:${turnoId}`);
+    if (sillaOrigen) setHrefReintento(`/silla/${sillaOrigen}`);
+    // El turno ya está cancelado: si quedara como "pendiente", /silla/[id]
+    // lo redirigiría de vuelta a /cola/... en vez de mostrar la silla.
+    if (sessionStorage.getItem("turnoPendiente") === turnoId) {
+      sessionStorage.removeItem("turnoPendiente");
+    }
+  }, [turnoId]);
 
   useEffect(() => {
     // El cliente canceló o el pago fue rechazado: liberamos el lugar en la
@@ -34,7 +48,7 @@ export default function Fracaso({
         No se realizó ningún cargo. Podés intentarlo de nuevo cuando quieras.
       </p>
       <Link
-        href="/"
+        href={hrefReintento}
         className="mt-8 w-full max-w-xs rounded-xl bg-terracota py-4 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover"
       >
         Volver a empezar

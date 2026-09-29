@@ -21,6 +21,7 @@ export function useEstadoTurno(
   const [error, setError] = useState<string | null>(null);
   const [segundosVentana, setSegundosVentana] = useState<number | null>(null);
   const [segundosSesion, setSegundosSesion] = useState<number | null>(null);
+  const [segundosProximaSilla, setSegundosProximaSilla] = useState<number | null>(null);
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activoRef = useRef(true);
@@ -32,6 +33,7 @@ export function useEstadoTurno(
       setTurno(data);
       setSegundosVentana(data.segundosVentana);
       setSegundosSesion(data.segundosRestantesSesion);
+      setSegundosProximaSilla(data.segundosProximaSilla ?? null);
       setError(null);
       return proximoRetrasoMs({ intervaloBaseMs: intervaloMs, retryAfterMs: null });
     } catch (e) {
@@ -86,10 +88,15 @@ export function useEstadoTurno(
   ventanaRef.current = segundosVentana;
   const sesionRef = useRef(segundosSesion);
   sesionRef.current = segundosSesion;
+  const proximaRef = useRef(segundosProximaSilla);
+  proximaRef.current = segundosProximaSilla;
 
   useEffect(() => {
-    if (turno?.estado !== "ASIGNADO" && turno?.estado !== "EN_USO") return;
+    if (turno?.estado !== "ASIGNADO" && turno?.estado !== "EN_USO" && turno?.estado !== "EN_COLA") return;
     const id = setInterval(() => {
+      if (turno?.estado === "EN_COLA" && proximaRef.current !== null && proximaRef.current > 0) {
+        setSegundosProximaSilla(proximaRef.current - 1);
+      }
       if (turno?.estado === "ASIGNADO" && ventanaRef.current !== null && ventanaRef.current > 0) {
         setSegundosVentana(ventanaRef.current - 1);
       }
@@ -100,5 +107,5 @@ export function useEstadoTurno(
     return () => clearInterval(id);
   }, [turno?.estado]);
 
-  return { turno, segundosVentana, segundosSesion, error, refrescar: sondear };
+  return { turno, segundosVentana, segundosSesion, segundosProximaSilla, error, refrescar: sondear };
 }

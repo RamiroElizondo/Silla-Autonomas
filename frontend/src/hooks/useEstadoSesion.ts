@@ -21,6 +21,7 @@ export function useEstadoSesion(
   const [sesion, setSesion] = useState<EstadoSesionPublico | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [segundos, setSegundos] = useState<number | null>(null);
+  const [segundosVentana, setSegundosVentana] = useState<number | null>(null);
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activoRef = useRef(true);
@@ -32,6 +33,7 @@ export function useEstadoSesion(
       if (!activoRef.current) return;
       setSesion(data);
       setSegundos(data.segundosRestantes);
+      setSegundosVentana(data.segundosVentana ?? null);
       setError(null);
       return proximoRetrasoMs({ intervaloBaseMs: intervaloMs, retryAfterMs: null });
     } catch (e) {
@@ -96,7 +98,21 @@ export function useEstadoSesion(
     return () => clearInterval(id);
   }, [corriendo]);
 
-  return { sesion, segundos, error, refrescar: sondear };
+  const ventanaRef = useRef(segundosVentana);
+  ventanaRef.current = segundosVentana;
+  const esperandoConfirmacion = sesion?.estado === "ESPERANDO_CONFIRMACION";
+
+  useEffect(() => {
+    if (!esperandoConfirmacion) return;
+    const id = setInterval(() => {
+      if (ventanaRef.current !== null && ventanaRef.current > 0) {
+        setSegundosVentana(ventanaRef.current - 1);
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [esperandoConfirmacion]);
+
+  return { sesion, segundos, segundosVentana, error, refrescar: sondear };
 }
 
 /** "1 minuto y 20 segundos" — para contarle al cliente lo que le devolvimos. */

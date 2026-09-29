@@ -15,12 +15,16 @@ export default function Fracaso({
     // El cliente canceló o el pago fue rechazado: liberamos la silla ya
     // mismo en vez de dejarla "PAGO_PENDIENTE" hasta que venza el timeout.
     // Best-effort — si esto falla, el timeout del backend la libera igual.
+    // El id viene en la URL de vuelta (funciona aunque Mercado Pago nos
+    // devuelva en otra pestaña); sessionStorage queda de respaldo.
     const key = `sesionPendiente:${id}`;
-    const sesionId = sessionStorage.getItem(key);
+    const sesionId =
+      new URLSearchParams(window.location.search).get("sesion") ??
+      sessionStorage.getItem(key);
     if (sesionId) {
       cancelarPago(id, sesionId).catch(() => {});
-      sessionStorage.removeItem(key);
     }
+    sessionStorage.removeItem(key);
   }, [id]);
 
   return (

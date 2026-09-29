@@ -22,7 +22,7 @@ export default function EstadoTurno({
   params: Promise<{ turnoId: string }>;
 }) {
   const { turnoId } = use(params);
-  const { turno, segundosVentana, segundosSesion, error } = useEstadoTurno(turnoId, 3000);
+  const { turno, segundosVentana, segundosSesion, segundosProximaSilla, error } = useEstadoTurno(turnoId, 3000);
   const [confirmando, setConfirmando] = useState(false);
   const [errorConfirmar, setErrorConfirmar] = useState<string | null>(null);
 
@@ -34,6 +34,12 @@ export default function EstadoTurno({
       if (guardado === turnoId) sessionStorage.removeItem("turnoPendiente");
     }
   }, [turno?.estado, turnoId]);
+
+  const [hrefReintento, setHrefReintento] = useState("/");
+  useEffect(() => {
+    const sillaOrigen = sessionStorage.getItem(`sillaOrigen:${turnoId}`);
+    if (sillaOrigen) setHrefReintento(`/silla/${sillaOrigen}`);
+  }, [turnoId]);
 
   async function confirmar() {
     setConfirmando(true);
@@ -82,17 +88,42 @@ export default function EstadoTurno({
 
       {turno.estado === "EN_COLA" && (
         <>
-          <div className="mt-6 rounded-2xl border border-borde bg-marfil p-6">
-            <p className="text-[13px] text-tinta-muted">Personas antes que vos</p>
-            <p className="mt-1.5 text-[40px] font-medium leading-none tabular-nums">
-              {turno.posicion ?? "–"}
-            </p>
-            <p className="mt-2 text-sm text-tinta-suave">
-              {turno.sillasLibres === 0
-                ? "Todas las sillas están ocupadas"
-                : `${turno.sillasLibres} silla(s) libre(s) ahora`}
-            </p>
-          </div>
+          {turno.posicion === 0 ? (
+            <div className="mt-6 w-full rounded-2xl border border-borde bg-marfil p-6">
+              <p className="text-xl font-medium">¡Sos el siguiente!</p>
+              <p className="mt-2 text-sm text-tinta-suave">
+                {turno.sillasLibres === 0
+                  ? "Apenas se libere una silla, te toca a vos."
+                  : "Ya hay una silla libre, te la estamos asignando."}
+              </p>
+            </div>
+          ) : (
+            <div className="mt-6 w-full rounded-2xl border border-borde bg-marfil p-6">
+              <p className="text-[13px] text-tinta-muted">
+                {turno.posicion === 1 ? "Hay una persona antes que vos" : "Personas antes que vos"}
+              </p>
+              {turno.posicion !== 1 && (
+                <p className="mt-1.5 text-[40px] font-medium leading-none tabular-nums">
+                  {turno.posicion ?? "–"}
+                </p>
+              )}
+              <p className="mt-2 text-sm text-tinta-suave">
+                {turno.sillasLibres === 0
+                  ? "Todas las sillas están ocupadas"
+                  : `${turno.sillasLibres} silla(s) libre(s) ahora`}
+              </p>
+            </div>
+          )}
+          {turno.sillasLibres === 0 && segundosProximaSilla !== null && (
+            <div className="mt-4 w-full rounded-2xl border border-borde bg-marfil p-5">
+              <p className="text-[13px] text-tinta-muted">
+                Silla en uso. Tiempo restante
+              </p>
+              <p className="mt-1.5 text-[36px] font-medium leading-none tabular-nums">
+                {formatearTimer(segundosProximaSilla)}
+              </p>
+            </div>
+          )}
           <p className="mt-4 text-sm text-tinta-suave">
             Dejá esta pantalla abierta — te avisamos acá apenas te toque.
           </p>
@@ -178,7 +209,7 @@ export default function EstadoTurno({
             espera del pago).
           </p>
           <Link
-            href="/"
+            href={hrefReintento}
             className="mt-6 text-sm text-tinta-muted underline underline-offset-4"
           >
             Volver a empezar

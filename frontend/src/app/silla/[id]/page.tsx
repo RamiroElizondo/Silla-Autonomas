@@ -106,6 +106,9 @@ export default function LandingSilla({
     try {
       const { turnoId, initPoint } = await unirseCola(turnstileToken);
       sessionStorage.setItem(`turnoPendiente`, turnoId);
+      // Recordamos desde qué silla (QR) arrancó, para que si se arrepiente en
+      // Mercado Pago el "Volver a empezar" lo traiga de vuelta acá.
+      sessionStorage.setItem(`sillaOrigen:${turnoId}`, id);
       window.location.href = initPoint;
     } catch (e) {
       setErrorCola(e instanceof Error ? e.message : "No se pudo iniciar el pago");
@@ -145,14 +148,13 @@ export default function LandingSilla({
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col px-6 pb-10 pt-8">
       <p className="text-xs uppercase tracking-[0.12em] text-tinta-muted">
-        Relax Point · San Juan
+        Relajá · San Juan
       </p>
       <h1 className="mt-1.5 text-3xl font-medium">{estado.nombre}</h1>
       <div className="mt-3.5">
         <EstadoBadge
           estado={estado.estado}
           sinEnergia={sinEnergia}
-          sufijo={estado.estado === "EN_USO" ? formatearTimer(segundos) : undefined}
         />
       </div>
 
@@ -216,9 +218,6 @@ export default function LandingSilla({
           <div className="mt-4 rounded-xl bg-panal px-4 py-3.5 text-center text-[13px] text-tinta-suave">
             Se libera automáticamente al terminar
           </div>
-          <p className="mt-3.5 text-center text-xs text-arena">
-            Volvé a escanear el QR cuando esté libre
-          </p>
         </>
       )}
 

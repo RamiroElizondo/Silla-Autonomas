@@ -60,7 +60,7 @@ export default function PantallaTV({
     <main className="flex min-h-dvh bg-crema">
       <section className="flex flex-1 flex-col justify-center px-[6vw]">
         <p className="text-sm uppercase tracking-[0.14em] text-tinta-muted">
-          Relax Point
+          Relajá
         </p>
         <h1 className="mt-3 text-[4.5vw] font-medium leading-tight lg:text-5xl">
           Tu masaje te espera
