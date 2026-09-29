@@ -144,6 +144,30 @@ export class AdminService {
     }));
   }
 
+  /**
+   * Turnos que ya pagaron y todavía no terminaron de usar la silla: los que
+   * esperan en la cola (EN_COLA) y los que tienen silla asignada pero no
+   * confirmaron (ASIGNADO). No aparecen en `sesiones()` porque la sesión
+   * recién se crea cuando el cliente confirma en la silla.
+   */
+  async cola() {
+    const items = await this.prisma.turno.findMany({
+      where: { estado: { in: ['EN_COLA', 'ASIGNADO'] } },
+      orderBy: { pagadoEn: 'asc' },
+      include: { silla: { select: { nombre: true } } },
+    });
+    return items.map((t) => ({
+      id: t.id,
+      codigo: t.codigo,
+      estado: t.estado,
+      monto: Number(t.monto),
+      duracionMin: t.duracionMin,
+      pagadoEn: t.pagadoEn,
+      asignadoEn: t.asignadoEn,
+      silla: t.silla,
+    }));
+  }
+
   /** Historial de sesiones, paginado, más recientes primero. */
   async sesiones(take = 50, skip = 0) {
     const [items, total] = await this.prisma.$transaction([
@@ -166,8 +190,8 @@ export class AdminService {
    * un cliente vuelve al día siguiente con un código, acá está el respaldo
    * de qué sesión lo originó y si ya se usó.
    */
-  listarCreditos(take = 50) {
-    return this.creditos.listar(take);
+  listarCreditos(take = 50, skip = 0) {
+    return this.creditos.listar(take, skip);
   }
 
   /** Métricas simples: hoy y últimos 30 días. */

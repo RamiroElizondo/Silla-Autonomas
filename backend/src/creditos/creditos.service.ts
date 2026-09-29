@@ -137,16 +137,24 @@ export class CreditosService {
     });
   }
 
-  /** Listado para el panel admin: primero los que todavía se pueden usar. */
-  listar(take = 50) {
-    return this.prisma.credito.findMany({
-      take,
-      orderBy: [{ estado: 'asc' }, { creadoEn: 'desc' }],
-      include: {
-        sesionOrigen: { select: { id: true, silla: { select: { nombre: true } } } },
-        turnoGenerado: { select: { id: true, codigo: true, estado: true } },
-      },
-    });
+  /**
+   * Listado paginado para el panel admin: primero los que todavía se pueden
+   * usar. Devuelve `{ total, items }` (igual que el historial de sesiones).
+   */
+  async listar(take = 50, skip = 0) {
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.credito.findMany({
+        take,
+        skip,
+        orderBy: [{ estado: 'asc' }, { creadoEn: 'desc' }],
+        include: {
+          sesionOrigen: { select: { id: true, silla: { select: { nombre: true } } } },
+          turnoGenerado: { select: { id: true, codigo: true, estado: true } },
+        },
+      }),
+      this.prisma.credito.count(),
+    ]);
+    return { total, items };
   }
 
   /** Barrido horario: marca vencidos los que nadie reclamó. */

@@ -58,6 +58,12 @@ export class AdminController {
     return this.admin.probarSilla(id);
   }
 
+  /** Clientes que pagaron y esperan silla (o tienen una asignada sin confirmar). */
+  @Get('cola')
+  cola() {
+    return this.admin.cola();
+  }
+
   @Get('sesiones')
   historial(
     @Query('take', new DefaultValuePipe(50), ParseIntPipe, new ParseIntMinPipe(1)) take: number,
@@ -70,8 +76,9 @@ export class AdminController {
   @Get('creditos')
   creditos(
     @Query('take', new DefaultValuePipe(50), ParseIntPipe, new ParseIntMinPipe(1)) take: number,
+    @Query('skip', new DefaultValuePipe(0), ParseIntPipe, new ParseIntMinPipe(0)) skip: number,
   ) {
-    return this.admin.listarCreditos(Math.min(take, 200));
+    return this.admin.listarCreditos(Math.min(take, 200), skip);
   }
 
   @Get('metricas')

@@ -278,14 +278,22 @@ describe('CreditosService.porSesion', () => {
 });
 
 describe('CreditosService.listar', () => {
-  it('usa take=50 por defecto, con el orderBy e include del panel admin', async () => {
-    const prisma: any = { credito: { findMany: jest.fn().mockResolvedValue([]) } };
+  function prismaListado(items: unknown[] = [], total = 0) {
+    const findMany = jest.fn().mockReturnValue('findMany-query');
+    const count = jest.fn().mockReturnValue('count-query');
+    const $transaction = jest.fn().mockResolvedValue([items, total]);
+    return { credito: { findMany, count }, $transaction } as any;
+  }
+
+  it('usa take=50 y skip=0 por defecto, con el orderBy e include del panel admin', async () => {
+    const prisma = prismaListado();
     const servicio = new CreditosService(prisma);
 
     await servicio.listar();
 
     expect(prisma.credito.findMany).toHaveBeenCalledWith({
       take: 50,
+      skip: 0,
       orderBy: [{ estado: 'asc' }, { creadoEn: 'desc' }],
       include: {
         sesionOrigen: { select: { id: true, silla: { select: { nombre: true } } } },
@@ -294,15 +302,25 @@ describe('CreditosService.listar', () => {
     });
   });
 
-  it('respeta el take explícito', async () => {
-    const prisma: any = { credito: { findMany: jest.fn().mockResolvedValue([]) } };
+  it('respeta take y skip explícitos', async () => {
+    const prisma = prismaListado();
     const servicio = new CreditosService(prisma);
 
-    await servicio.listar(10);
+    await servicio.listar(10, 20);
 
     expect(prisma.credito.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ take: 10 }),
+      expect.objectContaining({ take: 10, skip: 20 }),
     );
+  });
+
+  it('devuelve { total, items } leyendo ambos en una sola transacción', async () => {
+    const prisma = prismaListado([{ id: 'c1' }], 37);
+    const servicio = new CreditosService(prisma);
+
+    const resultado = await servicio.listar(10, 30);
+
+    expect(prisma.$transaction).toHaveBeenCalledWith(['findMany-query', 'count-query']);
+    expect(resultado).toEqual({ total: 37, items: [{ id: 'c1' }] });
   });
 });
 
