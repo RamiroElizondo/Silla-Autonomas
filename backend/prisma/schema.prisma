@@ -17,6 +17,7 @@ enum EstadoSilla {
 
 enum EstadoSesion {
   PENDIENTE // preferencia creada, esperando pago (timeout 3 min)
+  ESPERANDO_CONFIRMACION // pago aprobado, silla reservada: el cliente tiene unos minutos para sentarse y confirmar
   ESPERANDO_ENERGIA // pago aprobado pero el Shelly estaba offline: no se pudo encender todavía
   ACTIVA // pagada o activada manualmente, silla encendida
   COMPLETADA // terminó su tiempo normalmente

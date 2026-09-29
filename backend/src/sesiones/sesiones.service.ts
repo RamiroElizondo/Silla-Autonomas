@@ -56,6 +56,14 @@ export const RESTO_DESPRECIABLE_SEG = 60;
  */
 export const MAX_ESPERA_ENERGIA_SEG = 10 * 60;
 
+/**
+ * Minutos que tiene el cliente, una vez aprobado el pago, para sentarse y
+ * tocar "Ya estoy, confirmar" antes de que la silla se encienda. Mismo valor
+ * que la ventana de la cola (VENTANA_CONFIRMACION_MIN en ColaService, que no
+ * se puede importar acá sin crear un ciclo de módulos).
+ */
+export const VENTANA_CONFIRMACION_SESION_MIN = 2;
+
 /** Fila de `sesion` tal como la cachea `estadoPublico` (Bloque C): incluye
  * el `silla` mínimo que necesita la respuesta, nada más. */
 type SesionConSilla = Prisma.SesionGetPayload<{
@@ -149,6 +157,22 @@ export class SesionesService implements OnApplicationBootstrap {
       }
     }
 
+    // Sesiones pagadas esperando que el cliente confirme que se sentó
+    const esperandoConfirmacion = await this.prisma.sesion.findMany({
+      where: { estado: 'ESPERANDO_CONFIRMACION' },
+    });
+    for (const sesion of esperandoConfirmacion) {
+      const limite = new Date(
+        (sesion.pagadaEn ?? sesion.creadaEn).getTime() +
+          VENTANA_CONFIRMACION_SESION_MIN * 60_000,
+      );
+      if (limite <= new Date()) {
+        await this.expirarConfirmacion(sesion.id);
+      } else {
+        this.programar(sesion.id, limite, () => this.expirarConfirmacion(sesion.id));
+      }
+    }
+
     // Sesiones esperando pago: reprogramar o expirar
     const pendientes = await this.prisma.sesion.findMany({
       where: { estado: 'PENDIENTE' },
@@ -213,6 +237,90 @@ export class SesionesService implements OnApplicationBootstrap {
     return sesion;
   }
 
+  // ── PAGO_PENDIENTE → ESPERANDO_CONFIRMACION ──────────────────
+
+  /**
+   * Pago aprobado por el flujo directo (silla libre): en vez de encender la
+   * silla al toque —y que el reloj corra con el cliente todavía caminando—,
+   * se la deja reservada unos minutos hasta que confirme que se sentó
+   * (`confirmarSesion`). Si no confirma, `expirarConfirmacion` la libera.
+   *
+   * Mismo contrato que `activarSesion` para PagosService: idempotente si ya
+   * pasó por acá, y ConflictException si la sesión ya no estaba PENDIENTE
+   * (venció el pago, se canceló) para que el pago quede marcado a revisión.
+   */
+  async esperarConfirmacion(sesionId: string) {
+    const sesion = await this.prisma.sesion.findUnique({
+      where: { id: sesionId },
+      include: { silla: true },
+    });
+    if (!sesion) throw new NotFoundException('Sesión no encontrada');
+    if (sesion.estado === 'ESPERANDO_CONFIRMACION' || sesion.estado === 'ACTIVA') {
+      return sesion; // idempotente (webhook + retorno de MP)
+    }
+    if (sesion.estado !== 'PENDIENTE') {
+      throw new ConflictException(`Sesión en estado ${sesion.estado}, no confirmable`);
+    }
+
+    this.cancelarTimer(sesionId); // cancela la expiración por falta de pago
+
+    const pagadaEn = new Date();
+    const reclamada = await this.prisma.sesion.updateMany({
+      where: { id: sesionId, estado: 'PENDIENTE' },
+      data: { estado: 'ESPERANDO_CONFIRMACION', pagadaEn },
+    });
+    if (reclamada.count === 0) {
+      throw new ConflictException(`Sesión ${sesionId} ya no estaba PENDIENTE`);
+    }
+    await this.prisma.silla.updateMany({
+      where: { id: sesion.sillaId, estado: 'PAGO_PENDIENTE' },
+      data: { estado: 'RESERVADA' },
+    });
+    this.invalidarCache(sesionId);
+    this.sillas.invalidarCache(sesion.sillaId);
+
+    const limite = new Date(pagadaEn.getTime() + VENTANA_CONFIRMACION_SESION_MIN * 60_000);
+    this.programar(sesionId, limite, () => this.expirarConfirmacion(sesionId));
+    this.logger.log(
+      `Silla ${sesion.silla.nombre}: RESERVADA, esperando que el cliente confirme (sesión ${sesionId})`,
+    );
+    return this.prisma.sesion.findUnique({ where: { id: sesionId } });
+  }
+
+  /** ESPERANDO_CONFIRMACION → ACTIVA: el cliente confirmó que se sentó. */
+  async confirmarSesion(sesionId: string) {
+    const sesion = await this.prisma.sesion.findUnique({ where: { id: sesionId } });
+    if (!sesion) throw new NotFoundException('Sesión no encontrada');
+    if (sesion.estado === 'ACTIVA') return { ok: true, sillaId: sesion.sillaId }; // doble toque
+    if (sesion.estado !== 'ESPERANDO_CONFIRMACION') {
+      throw new ConflictException(`Sesión en estado ${sesion.estado}, no se puede confirmar`);
+    }
+    await this.activarSesion(sesionId);
+    return { ok: true, sillaId: sesion.sillaId };
+  }
+
+  /** ESPERANDO_CONFIRMACION → CANCELADA: no se sentó a tiempo, se libera la silla. */
+  async expirarConfirmacion(sesionId: string) {
+    this.cancelarTimer(sesionId);
+
+    const expirada = await this.prisma.sesion.updateMany({
+      where: { id: sesionId, estado: 'ESPERANDO_CONFIRMACION' },
+      data: { estado: 'CANCELADA', finReal: new Date(), motivoCierre: 'no_confirmo_a_tiempo' },
+    });
+    if (expirada.count === 0) return;
+    this.invalidarCache(sesionId);
+
+    const sesion = await this.prisma.sesion.findUnique({ where: { id: sesionId } });
+    if (sesion) {
+      await this.prisma.silla.updateMany({
+        where: { id: sesion.sillaId, estado: 'RESERVADA' },
+        data: { estado: 'LIBRE' },
+      });
+      this.sillas.invalidarCache(sesion.sillaId);
+    }
+    this.logger.log(`Sesión ${sesionId} no confirmó a tiempo, silla liberada`);
+  }
+
   // ── PAGO_PENDIENTE → EN_USO ───────────────────────────────────
 
   /**
@@ -230,7 +338,11 @@ export class SesionesService implements OnApplicationBootstrap {
     });
     if (!sesion) throw new NotFoundException('Sesión no encontrada');
     if (sesion.estado === 'ACTIVA') return sesion; // idempotente
-    if (sesion.estado !== 'PENDIENTE' && sesion.estado !== 'ESPERANDO_ENERGIA') {
+    if (
+      sesion.estado !== 'PENDIENTE' &&
+      sesion.estado !== 'ESPERANDO_ENERGIA' &&
+      sesion.estado !== 'ESPERANDO_CONFIRMACION'
+    ) {
       throw new ConflictException(`Sesión en estado ${sesion.estado}, no activable`);
     }
 
@@ -641,7 +753,7 @@ export class SesionesService implements OnApplicationBootstrap {
     await this.shelly.setRele(silla.deviceIdShelly, false);
 
     const activa = await this.prisma.sesion.findFirst({
-      where: { sillaId, estado: { in: ['ACTIVA', 'ESPERANDO_ENERGIA'] } },
+      where: { sillaId, estado: { in: ['ACTIVA', 'ESPERANDO_ENERGIA', 'ESPERANDO_CONFIRMACION'] } },
     });
     if (activa) {
       this.cancelarTimer(activa.id);
@@ -754,6 +866,19 @@ export class SesionesService implements OnApplicationBootstrap {
         ? Math.max(0, Math.round((sesion.finProgramado.getTime() - Date.now()) / 1000))
         : null;
 
+    const segundosVentana =
+      sesion.estado === 'ESPERANDO_CONFIRMACION'
+        ? Math.max(
+            0,
+            Math.round(
+              ((sesion.pagadaEn ?? sesion.creadaEn).getTime() +
+                VENTANA_CONFIRMACION_SESION_MIN * 60_000 -
+                Date.now()) /
+                1000,
+            ),
+          )
+        : null;
+
     const credito = await this.creditos.porSesion(sesionId);
 
     return {
@@ -763,6 +888,7 @@ export class SesionesService implements OnApplicationBootstrap {
       sillaNombre: sesion.silla.nombre,
       duracionMin: sesion.duracionMin,
       segundosRestantes,
+      segundosVentana,
       interrumpida: sesion.interrumpidaEn !== null,
       cortes: sesion.cortes,
       segundosCompensados: sesion.segundosCompensados,

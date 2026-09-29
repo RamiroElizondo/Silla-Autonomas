@@ -111,9 +111,12 @@ export class PagosService {
         precio: Number(silla.precio),
         externalReference,
         itemId: sillaId,
-        successUrl: `${frontendOrigin}/silla/${sillaId}/exito`,
-        failureUrl: `${frontendOrigin}/silla/${sillaId}/fracaso`,
-        pendingUrl: `${frontendOrigin}/silla/${sillaId}/fracaso`,
+        // El id de sesión viaja en la URL de vuelta: sessionStorage es por
+        // pestaña y Mercado Pago puede devolver al cliente en otra (o en el
+        // navegador interno de una app), donde el id guardado no existe.
+        successUrl: `${frontendOrigin}/silla/${sillaId}/exito?sesion=${sesion.id}`,
+        failureUrl: `${frontendOrigin}/silla/${sillaId}/fracaso?sesion=${sesion.id}`,
+        pendingUrl: `${frontendOrigin}/silla/${sillaId}/fracaso?sesion=${sesion.id}`,
       });
       return { sesionId: sesion.id, initPoint: pref.initPoint };
     } catch (e) {
@@ -385,8 +388,10 @@ export class PagosService {
     }
 
     try {
-      await this.sesiones.activarSesion(sesion.id);
-      this.logger.log(`Pago ${paymentId} aprobado → sesión ${sesion.id} activada`);
+      await this.sesiones.esperarConfirmacion(sesion.id);
+      this.logger.log(
+        `Pago ${paymentId} aprobado → sesión ${sesion.id} reservada, esperando que el cliente confirme`,
+      );
     } catch (e) {
       if (e instanceof ConflictException) {
         // La sesión ya no estaba PENDIENTE (se canceló por timeout, por el

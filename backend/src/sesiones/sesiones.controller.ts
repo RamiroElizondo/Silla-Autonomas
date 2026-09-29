@@ -1,6 +1,6 @@
-import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { LIMITE_ESTADO } from '../common/throttle.config';
+import { LIMITE_CONFIRMACION, LIMITE_ESTADO } from '../common/throttle.config';
 import { SesionesService } from './sesiones.service';
 
 /**
@@ -17,5 +17,12 @@ export class SesionesController {
   @Throttle({ default: LIMITE_ESTADO })
   estado(@Param('id', ParseUUIDPipe) id: string) {
     return this.sesiones.estadoPublico(id);
+  }
+
+  /** El cliente confirma que se sentó: enciende la silla que pagó. */
+  @Post(':id/confirmar')
+  @Throttle({ default: LIMITE_CONFIRMACION })
+  confirmar(@Param('id', ParseUUIDPipe) id: string) {
+    return this.sesiones.confirmarSesion(id);
   }
 }

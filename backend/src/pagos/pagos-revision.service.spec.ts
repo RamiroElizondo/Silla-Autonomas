@@ -10,7 +10,7 @@ function crearServicio(overrides: {
   pago?: Partial<Record<string, jest.Mock>>;
   sesion?: Partial<Record<string, jest.Mock>>;
   turno?: Partial<Record<string, jest.Mock>>;
-  activarSesion?: jest.Mock;
+  esperarConfirmacion?: jest.Mock;
   procesarPagoAprobado?: jest.Mock;
   emitirCredito?: jest.Mock;
 } = {}) {
@@ -39,7 +39,7 @@ function crearServicio(overrides: {
   };
   const mp: any = { obtenerPago: jest.fn() };
   const sesiones: any = {
-    activarSesion: overrides.activarSesion ?? jest.fn().mockResolvedValue(undefined),
+    esperarConfirmacion: overrides.esperarConfirmacion ?? jest.fn().mockResolvedValue(undefined),
   };
   const sillas: any = {};
   const cola: any = {
@@ -94,7 +94,7 @@ describe('PagosService — pagos aprobados sin servicio (Bloque B)', () => {
     await servicio.procesarNotificacionPago('pay-1', {});
     s.restore();
 
-    expect(sesiones.activarSesion).not.toHaveBeenCalled();
+    expect(sesiones.esperarConfirmacion).not.toHaveBeenCalled();
     expect(prisma.pago.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -122,7 +122,7 @@ describe('PagosService — pagos aprobados sin servicio (Bloque B)', () => {
     await servicio.procesarNotificacionPago('pay-1', {});
     s.restore();
 
-    expect(sesiones.activarSesion).not.toHaveBeenCalled();
+    expect(sesiones.esperarConfirmacion).not.toHaveBeenCalled();
     expect(prisma.pago.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ requiereRevision: true, motivoRevision: 'monto_insuficiente' }),
@@ -144,7 +144,7 @@ describe('PagosService — pagos aprobados sin servicio (Bloque B)', () => {
 
     await servicio.procesarNotificacionPago('pay-1', {});
 
-    expect(sesiones.activarSesion).toHaveBeenCalledWith('sesion-1');
+    expect(sesiones.esperarConfirmacion).toHaveBeenCalledWith('sesion-1');
     expect(prisma.pago.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ requiereRevision: false, motivoRevision: undefined }),
@@ -153,10 +153,10 @@ describe('PagosService — pagos aprobados sin servicio (Bloque B)', () => {
   });
 
   it('sesión ya no pendiente al aplicar: marca requiereRevision con motivo sesion_no_pendiente', async () => {
-    const activarSesion = jest.fn().mockRejectedValue(new ConflictException('no pendiente'));
+    const esperarConfirmacion = jest.fn().mockRejectedValue(new ConflictException('no pendiente'));
     const { servicio, prisma, mp } = crearServicio({
       sesion: { findUnique: jest.fn().mockResolvedValue(SESION_BASE) },
-      activarSesion,
+      esperarConfirmacion,
     });
     mp.obtenerPago.mockResolvedValue({
       id: 1,
@@ -254,7 +254,7 @@ describe('PagosService — idempotencia y transición a reembolso (Bloque B)', (
     s.restore();
 
     expect(prisma.pago.updateMany).not.toHaveBeenCalled();
-    expect(sesiones.activarSesion).not.toHaveBeenCalled();
+    expect(sesiones.esperarConfirmacion).not.toHaveBeenCalled();
   });
 
   it('pago ya aprobado que MP marca refunded: pasa a REEMBOLSADO y no corta nada automáticamente', async () => {
@@ -276,7 +276,7 @@ describe('PagosService — idempotencia y transición a reembolso (Bloque B)', (
       data: { estado: 'REEMBOLSADO', requiereRevision: true, motivoRevision: 'pago_refunded' },
     });
     // No corta la corriente ni cancela nada por su cuenta.
-    expect(sesiones.activarSesion).not.toHaveBeenCalled();
+    expect(sesiones.esperarConfirmacion).not.toHaveBeenCalled();
     expect(cola.procesarPagoAprobado).not.toHaveBeenCalled();
   });
 

@@ -1251,3 +1251,94 @@ describe('SesionesService — cancelación de timers al cambiar de estado', () =
     expect(llamadasExpiracion).toHaveLength(0);
   });
 });
+
+describe('SesionesService — ventana de confirmación tras el pago directo', () => {
+  const sesionPendiente = {
+    id: 'sesion-1',
+    sillaId: 'silla-1',
+    estado: 'PENDIENTE',
+    duracionMin: 10,
+    silla: { id: 'silla-1', nombre: 'Silla 1', deviceIdShelly: 'dev-1' },
+  };
+
+  it('esperarConfirmacion: reserva la silla y NO enciende el relé', async () => {
+    const { servicio, prisma, shelly } = crearServicio();
+    prisma.sesion.findUnique = jest.fn().mockResolvedValue(sesionPendiente);
+
+    await servicio.esperarConfirmacion('sesion-1');
+
+    expect(prisma.sesion.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'sesion-1', estado: 'PENDIENTE' },
+        data: expect.objectContaining({ estado: 'ESPERANDO_CONFIRMACION' }),
+      }),
+    );
+    expect(prisma.silla.updateMany).toHaveBeenCalledWith({
+      where: { id: 'silla-1', estado: 'PAGO_PENDIENTE' },
+      data: { estado: 'RESERVADA' },
+    });
+    expect(shelly.setRele).not.toHaveBeenCalled();
+  });
+
+  it('esperarConfirmacion: si la sesión ya no estaba PENDIENTE tira ConflictException', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.sesion.findUnique = jest
+      .fn()
+      .mockResolvedValue({ ...sesionPendiente, estado: 'CANCELADA' });
+
+    await expect(servicio.esperarConfirmacion('sesion-1')).rejects.toBeInstanceOf(
+      ConflictException,
+    );
+  });
+
+  it('esperarConfirmacion: es idempotente si ya estaba esperando confirmación', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.sesion.findUnique = jest
+      .fn()
+      .mockResolvedValue({ ...sesionPendiente, estado: 'ESPERANDO_CONFIRMACION' });
+
+    await servicio.esperarConfirmacion('sesion-1');
+
+    expect(prisma.sesion.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('confirmarSesion: desde ESPERANDO_CONFIRMACION enciende la silla', async () => {
+    const { servicio, prisma, shelly } = crearServicio();
+    prisma.sesion.findUnique = jest
+      .fn()
+      .mockResolvedValue({ ...sesionPendiente, estado: 'ESPERANDO_CONFIRMACION' });
+
+    const res = await servicio.confirmarSesion('sesion-1');
+
+    expect(shelly.setRele).toHaveBeenCalledWith('dev-1', true, expect.any(Number));
+    expect(res).toEqual({ ok: true, sillaId: 'silla-1' });
+  });
+
+  it('confirmarSesion: si ya venció (CANCELADA) tira ConflictException y no enciende', async () => {
+    const { servicio, prisma, shelly } = crearServicio();
+    prisma.sesion.findUnique = jest
+      .fn()
+      .mockResolvedValue({ ...sesionPendiente, estado: 'CANCELADA' });
+
+    await expect(servicio.confirmarSesion('sesion-1')).rejects.toBeInstanceOf(ConflictException);
+    expect(shelly.setRele).not.toHaveBeenCalled();
+  });
+
+  it('expirarConfirmacion: cancela la sesión y libera la silla reservada', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.sesion.findUnique = jest.fn().mockResolvedValue(sesionPendiente);
+
+    await servicio.expirarConfirmacion('sesion-1');
+
+    expect(prisma.sesion.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'sesion-1', estado: 'ESPERANDO_CONFIRMACION' },
+        data: expect.objectContaining({ estado: 'CANCELADA', motivoCierre: 'no_confirmo_a_tiempo' }),
+      }),
+    );
+    expect(prisma.silla.updateMany).toHaveBeenCalledWith({
+      where: { id: 'silla-1', estado: 'RESERVADA' },
+      data: { estado: 'LIBRE' },
+    });
+  });
+});
