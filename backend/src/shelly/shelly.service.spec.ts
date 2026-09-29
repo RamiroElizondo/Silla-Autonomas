@@ -53,3 +53,61 @@ describe('ShellyService — bloque de loadtest (LOADTEST=true)', () => {
     expect(fetchSpy).toHaveBeenCalled();
   });
 });
+
+describe('ShellyService — reintento ante rate limit (429)', () => {
+  let fetchSpy: jest.SpyInstance;
+
+  const rateLimit = () =>
+    Promise.resolve({
+      ok: false,
+      status: 200,
+      text: async () =>
+        JSON.stringify({
+          error: 'TOO_MANY_REQUESTS',
+          data: { messages: ['Too many requests. Please try again later.'] },
+        }),
+    } as any);
+  const ok = () =>
+    Promise.resolve({ ok: true, status: 200, text: async () => '{}' } as any);
+
+  function crear() {
+    const shelly = new ShellyService(
+      crearConfigMock({
+        SHELLY_SERVER: 'https://shelly-XX-eu.shelly.cloud',
+        SHELLY_AUTH_KEY: 'auth-key-de-test',
+      }),
+      crearPrismaMock(),
+    );
+    (shelly as any).esperaReintentoMs = 0;
+    return shelly;
+  }
+
+  beforeEach(() => {
+    fetchSpy = jest.spyOn(global, 'fetch');
+  });
+  afterEach(() => fetchSpy.mockRestore());
+
+  it('un 429 puntual se reintenta y el ON termina bien', async () => {
+    fetchSpy.mockImplementationOnce(rateLimit).mockImplementationOnce(ok);
+    await expect(crear().setRele('device-1', true, 600)).resolves.toBeUndefined();
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('si el 429 persiste, falla después de 3 intentos', async () => {
+    fetchSpy.mockImplementation(rateLimit);
+    await expect(crear().setRele('device-1', true)).rejects.toThrow(/TOO_MANY_REQUESTS/);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  }, 15_000);
+
+  it('otros errores (ej. DEVICE_OFFLINE) no se reintentan', async () => {
+    fetchSpy.mockImplementation(() =>
+      Promise.resolve({
+        ok: false,
+        status: 200,
+        text: async () => JSON.stringify({ error: 'DEVICE_OFFLINE' }),
+      } as any),
+    );
+    await expect(crear().setRele('device-1', true)).rejects.toThrow(/DEVICE_OFFLINE/);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+});

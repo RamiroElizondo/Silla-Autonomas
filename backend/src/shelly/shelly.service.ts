@@ -61,7 +61,13 @@ const ERRORES_V2: Record<string, string> = {
   HTTP_401:
     'auth_key inválida o vencida (cambia si se cambia la contraseña de la cuenta Shelly)',
   HTTP_429: 'se superó el límite de 1 request/segundo de Shelly Cloud',
+  TOO_MANY_REQUESTS:
+    'se superó el límite de 1 request/segundo de Shelly Cloud (la comparte cualquier ' +
+    'otro uso de la cuenta: web/app de Shelly, otra instancia del backend, Postman)',
 };
+
+/** Códigos con los que Shelly Cloud avisa que se pasó el rate limit. */
+const CODIGOS_RATE_LIMIT = new Set(['TOO_MANY_REQUESTS', 'HTTP_429']);
 
 /** Error de la API v2, con el código crudo disponible para decidir reintentos. */
 export class ShellyApiError extends Error {
@@ -118,6 +124,11 @@ export class ShellyService {
   // Shelly Cloud limita a ~1 request/segundo por cuenta.
   // Todas las llamadas pasan por una cola que las espacia.
   private static readonly ESPACIADO_MS = 1100;
+  // El límite es por cuenta, no por proceso: la web/app de Shelly, otra
+  // instancia del backend o Postman también lo consumen. Ante un 429 en un
+  // comando (ON/OFF) se reintenta unas veces en vez de tratarlo como corte.
+  private static readonly REINTENTOS_RATE_LIMIT = 2;
+  private esperaReintentoMs = 1500;
   private cadena: Promise<unknown> = Promise.resolve();
   private ultimaLlamada = 0;
 
@@ -209,6 +220,24 @@ export class ShellyService {
     return json as T;
   }
 
+  /** postV2 que reintenta (con pausa) si Shelly responde rate limit. */
+  private async postConReintentoRateLimit<T>(ruta: string, body: unknown): Promise<T> {
+    for (let intento = 0; ; intento++) {
+      try {
+        return await this.postV2<T>(ruta, body);
+      } catch (e) {
+        const esRateLimit =
+          e instanceof ShellyApiError && CODIGOS_RATE_LIMIT.has(e.codigo);
+        if (!esRateLimit || intento >= ShellyService.REINTENTOS_RATE_LIMIT) throw e;
+        this.logger.warn(
+          `Shelly Cloud respondió rate limit en ${ruta}; reintento ` +
+            `${intento + 1}/${ShellyService.REINTENTOS_RATE_LIMIT} en ${this.esperaReintentoMs} ms`,
+        );
+        await new Promise((r) => setTimeout(r, this.esperaReintentoMs));
+      }
+    }
+  }
+
   // ── API pública ───────────────────────────────────────────────
 
   /**
@@ -248,7 +277,7 @@ export class ShellyService {
     }
 
     try {
-      await this.postV2('set/switch', body);
+      await this.postConReintentoRateLimit('set/switch', body);
     } catch (e) {
       this.logger.error(
         `Fallo al ${encender ? 'encender' : 'apagar'} relé ${deviceId}: ${describir(e)}`,
