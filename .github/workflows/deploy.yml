@@ -1,0 +1,153 @@
+name: Deploy
+
+# Un tag dispara el deploy:
+#   v1.2.3          → producción  (el commit debe estar en main)
+#   v1.2.3-beta.1   → beta
+# Guía completa: docs/DEPLOY.md
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-beta.[0-9]+"
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  meta:
+    name: Resolver ambiente
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.r.outputs.environment }}
+      owner: ${{ steps.r.outputs.owner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: r
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            ENV=production
+            # Producción solo sale de código que ya está en main.
+            git fetch origin main
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::El tag $TAG no está en main. Mergeá a main antes de taggear producción (o usá un tag -beta.N)."
+              exit 1
+            fi
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
+            ENV=beta
+          else
+            echo "::error::Tag inválido: $TAG"; exit 1
+          fi
+          echo "environment=$ENV" >> "$GITHUB_OUTPUT"
+          echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+          echo "Tag $TAG → ambiente $ENV"
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    needs: meta
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+      - name: Backend
+        working-directory: backend
+        run: |
+          npm ci
+          npx prisma generate
+          npx tsc --noEmit
+          npm test
+      - name: Frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npx tsc --noEmit
+          npm test
+
+  deploy:
+    name: Build y deploy (${{ needs.meta.outputs.environment }})
+    runs-on: ubuntu-latest
+    needs: [meta, test]
+    # Los secrets/variables salen del Environment de GitHub (beta o production).
+    # En production se puede exigir aprobación manual (Settings → Environments).
+    environment: ${{ needs.meta.outputs.environment }}
+    permissions:
+      contents: read
+      packages: write
+    env:
+      TAG: ${{ github.ref_name }}
+      BACKEND_IMAGE: ghcr.io/${{ needs.meta.outputs.owner }}/silla-backend
+      FRONTEND_IMAGE: ghcr.io/${{ needs.meta.outputs.owner }}/silla-frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build y push backend
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          push: true
+          tags: ${{ env.BACKEND_IMAGE }}:${{ env.TAG }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Build y push frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: true
+          tags: ${{ env.FRONTEND_IMAGE }}:${{ env.TAG }}
+          build-args: |
+            NEXT_PUBLIC_TURNSTILE_SITE_KEY=${{ vars.TURNSTILE_SITE_KEY }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+
+      - name: Instalar CLI de CapRover
+        run: npm install -g caprover
+
+      # Backend primero: al arrancar corre `prisma migrate deploy`.
+      - name: Deploy backend
+        run: |
+          caprover deploy \
+            --caproverUrl "${{ vars.CAPROVER_URL }}" \
+            --appName "${{ vars.CAPROVER_BACKEND_APP }}" \
+            --appToken "${{ secrets.CAPROVER_BACKEND_TOKEN }}" \
+            --imageName "${BACKEND_IMAGE}:${TAG}"
+
+      - name: Deploy frontend
+        run: |
+          caprover deploy \
+            --caproverUrl "${{ vars.CAPROVER_URL }}" \
+            --appName "${{ vars.CAPROVER_FRONTEND_APP }}" \
+            --appToken "${{ secrets.CAPROVER_FRONTEND_TOKEN }}" \
+            --imageName "${FRONTEND_IMAGE}:${TAG}"
+
+      - name: Smoke test
+        run: |
+          URL="${{ vars.SITE_URL }}"
+          for i in $(seq 1 24); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$URL/" || true)
+            echo "intento $i: HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 10
+          done
+          echo "::error::El sitio no respondió 200 tras el deploy. Ver docs/DEPLOY.md → Rollback."
+          exit 1
