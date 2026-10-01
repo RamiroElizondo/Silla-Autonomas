@@ -93,8 +93,8 @@ export default function EstadoTurno({
               <p className="text-xl font-medium">¡Sos el siguiente!</p>
               <p className="mt-2 text-sm text-tinta-suave">
                 {turno.sillasLibres === 0
-                  ? "Apenas se libere una silla, te toca a vos."
-                  : "Ya hay una silla libre, te la estamos asignando."}
+                  ? "Apenas se libere un sillón, te toca a vos."
+                  : "Ya hay un sillón libre, te lo estamos asignando."}
               </p>
             </div>
           ) : (
@@ -109,15 +109,15 @@ export default function EstadoTurno({
               )}
               <p className="mt-2 text-sm text-tinta-suave">
                 {turno.sillasLibres === 0
-                  ? "Todas las sillas están ocupadas"
-                  : `${turno.sillasLibres} silla(s) libre(s) ahora`}
+                  ? "Todos los sillones están ocupados"
+                  : `${turno.sillasLibres} sillón(es) libre(s) ahora`}
               </p>
             </div>
           )}
           {turno.sillasLibres === 0 && segundosProximaSilla !== null && (
             <div className="mt-4 w-full rounded-2xl border border-borde bg-marfil p-5">
               <p className="text-[13px] text-tinta-muted">
-                Silla en uso. Tiempo restante
+                Sillón en uso. Tiempo restante
               </p>
               <p className="mt-1.5 text-[36px] font-medium leading-none tabular-nums">
                 {formatearTimer(segundosProximaSilla)}
@@ -134,7 +134,7 @@ export default function EstadoTurno({
         <>
           <div className="mt-6 rounded-2xl border border-terracota bg-terracota-claro p-6">
             <p className="text-[15px] font-medium text-terracota-oscuro">
-              ¡Te toca {turno.sillaAsignada?.nombre ?? "tu silla"}!
+              ¡Te toca {turno.sillaAsignada?.nombre ?? "tu sillón"}!
             </p>
             <p className="mt-2 text-sm text-terracota-oscuro">
               Confirmá antes de que se acabe el tiempo, o pasás al siguiente.
@@ -160,9 +160,9 @@ export default function EstadoTurno({
 
       {turno.estado === "EN_USO" && turno.sesionEstado === "ESPERANDO_ENERGIA" && (
         <div className="mt-6 w-full rounded-2xl border border-arena bg-panal p-6">
-          <p className="text-[15px] font-medium">La silla está sin luz</p>
+          <p className="text-[15px] font-medium">El sillón está sin luz</p>
           <p className="mt-2 text-sm text-tinta-suave">
-            Tu turno sigue siendo tuyo. La encendemos sola apenas vuelva la
+            Tu turno sigue siendo tuyo. Lo encendemos automáticamente apenas vuelva la
             energía.
           </p>
         </div>
@@ -171,7 +171,7 @@ export default function EstadoTurno({
       {turno.estado === "EN_USO" && !turno.interrumpida && turno.sesionEstado !== "ESPERANDO_ENERGIA" && (
         <>
           <p className="mt-2 text-sm text-tinta-suave">
-            {turno.sillaAsignada?.nombre ?? "Tu silla"} está encendida. Disfrutá.
+            {turno.sillaAsignada?.nombre ?? "Tu sillón"} está encendido. Disfrutá.
           </p>
           <div className="mt-6 w-full rounded-2xl border border-borde bg-marfil p-7 text-center">
             <p className="text-[13px] text-tinta-muted">Tiempo restante</p>

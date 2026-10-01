@@ -255,7 +255,7 @@ export class SesionesService implements OnApplicationBootstrap {
     // checkout — es mucho más barato que devolverle la plata después.
     if (this.heartbeat.estaOffline(silla.id)) {
       throw new ConflictException(
-        'La silla está sin conexión en este momento. Probá en unos minutos.',
+        'El sillón está sin conexión en este momento. Probá en unos minutos.',
       );
     }
 
@@ -264,7 +264,7 @@ export class SesionesService implements OnApplicationBootstrap {
       data: { estado: 'PAGO_PENDIENTE' },
     });
     if (reservada.count === 0) {
-      throw new ConflictException('La silla no está libre en este momento');
+      throw new ConflictException('El sillón no está libre en este momento');
     }
     this.sillas.invalidarCache(silla.id);
 
@@ -905,7 +905,7 @@ export class SesionesService implements OnApplicationBootstrap {
   /** Parada de emergencia: corta ya, marca la sesión como CANCELADA. */
   async detenerEmergencia(sillaId: string) {
     const silla = await this.prisma.silla.findUnique({ where: { id: sillaId } });
-    if (!silla) throw new NotFoundException('Silla no encontrada');
+    if (!silla) throw new NotFoundException('Sillón no encontrado');
 
     await this.shelly.setRele(silla.deviceIdShelly, false);
 
@@ -952,9 +952,9 @@ export class SesionesService implements OnApplicationBootstrap {
   /** Activación manual desde el panel admin (sin pago). */
   async activarManual(sillaId: string, duracionMin?: number) {
     const silla = await this.prisma.silla.findUnique({ where: { id: sillaId } });
-    if (!silla) throw new NotFoundException('Silla no encontrada');
+    if (!silla) throw new NotFoundException('Sillón no encontrado');
     if (silla.estado === 'EN_USO') {
-      throw new ConflictException('La silla ya está en uso');
+      throw new ConflictException('El sillón ya está en uso');
     }
 
     const sesion = await this.prisma.sesion.create({

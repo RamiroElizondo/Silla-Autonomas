@@ -147,11 +147,11 @@ export default function Exito({
         <>
           <div className="mt-6 w-full rounded-2xl border border-terracota bg-terracota-claro p-6">
             <p className="text-[15px] font-medium text-terracota-oscuro">
-              Sentate en {sesion?.sillaNombre ?? "tu silla"} y confirmá
+              Sentate en {sesion?.sillaNombre ?? "tu sillón"} y confirmá
             </p>
             <p className="mt-2 text-sm text-terracota-oscuro">
-              La encendemos cuando toques el botón. Si no confirmás a tiempo, la
-              silla se libera.
+              Lo encendemos cuando toques el botón. Si no confirmás a tiempo, el
+              sillón se libera.
             </p>
             <p className="mt-3 text-[44px] font-medium leading-none tabular-nums text-terracota-oscuro">
               {formatearTimer(segundosVentana)}
@@ -180,7 +180,7 @@ export default function Exito({
       {(enCurso || (activaSinSesion && !salidaSinSesion)) && (
         <>
           <p className="mt-2 text-sm text-tinta-suave">
-            Tu silla ya está encendida. Sentate y disfrutá.
+            Tu sillón ya está encendido. Sentate y disfrutá.
           </p>
           <AvisoFaseSilla fase={sesion ? sesion.fase : faseSilla} />
           <p className="mt-6 text-[44px] font-medium leading-none tabular-nums">
@@ -213,9 +213,9 @@ export default function Exito({
 
       {esperandoEnergia && (
         <div className="mt-6 w-full rounded-2xl border border-arena bg-panal p-6">
-          <p className="text-[15px] font-medium">La silla está sin luz</p>
+          <p className="text-[15px] font-medium">El sillón está sin luz</p>
           <p className="mt-2 text-sm text-tinta-suave">
-            Tu pago entró bien y la silla te está reservada. La encendemos sola
+            Tu pago entró bien y el sillón te está reservado. Lo encendemos automáticamente
             apenas vuelva la energía — no hace falta que hagas nada.
           </p>
           <p className="mt-3 text-xs text-arena">
@@ -229,13 +229,13 @@ export default function Exito({
           credito={sesion.credito}
           titulo={
             sesion.motivoCierre === "sin_energia_al_pagar"
-              ? "No pudimos encender la silla"
+              ? "No pudimos encender el sillón"
               : "Se cortó la luz"
           }
           detalle={
             sesion.motivoCierre === "sin_energia_al_pagar"
-              ? `El local se quedó sin energía y no llegamos a prenderla. Tu pago no se pierde: te queda un vale por ${sesion.credito.duracionMin} minutos.`
-              : `El corte duró demasiado como para dejarte la silla encendida. Te queda un vale por los ${sesion.credito.duracionMin} minutos que te faltaban.`
+              ? `El local se quedó sin energía y no llegamos a prenderlo. Tu pago no se pierde: te queda un vale por ${sesion.credito.duracionMin} minutos.`
+              : `El corte duró demasiado como para dejarte el sillón encendido. Te queda un vale por los ${sesion.credito.duracionMin} minutos que te faltaban.`
           }
         />
       )}
@@ -250,7 +250,7 @@ export default function Exito({
 
       {detenidaPorEncargado && (
         <p className="mt-2 text-sm text-tinta-suave">
-          El encargado detuvo la silla antes de que se cumpliera tu tiempo.
+          El encargado detuvo el sillón antes de que se cumpliera tu tiempo.
           Avisale para que lo resuelvan con vos.
         </p>
       )}
@@ -258,9 +258,9 @@ export default function Exito({
       {cancelada && !detenidaPorEncargado && (
         <p className="mt-2 text-sm text-tinta-suave">
           {sesion?.motivoCierre === "pago_no_recibido"
-            ? "No llegamos a recibir tu pago y la silla quedó libre. Si pagaste, avisale al encargado y no vuelvas a pagar."
+            ? "No llegamos a recibir tu pago y el sillón quedó libre. Si pagaste, avisale al encargado y no vuelvas a pagar."
             : sesion?.motivoCierre === "no_confirmo_a_tiempo"
-              ? "No llegaste a confirmar a tiempo y la silla quedó libre. Si ya pagaste, avisale al encargado."
+              ? "No llegaste a confirmar a tiempo y el sillón quedó libre. Si ya pagaste, avisale al encargado."
               : "La sesión se cerró antes de tiempo. Avisale al encargado."}
         </p>
       )}
@@ -269,7 +269,7 @@ export default function Exito({
         <p className="mt-2 text-sm text-tinta-suave">
           {errorConfirmacion
             ? `${errorConfirmacion} Avisá al encargado y no vuelvas a pagar.`
-            : "Estamos verificando el pago y encendiendo tu silla…"}
+            : "Estamos verificando el pago y encendiendo tu sillón…"}
         </p>
       )}
 
@@ -277,7 +277,7 @@ export default function Exito({
         href={`/silla/${id}`}
         className="mt-8 text-sm text-tinta-muted underline underline-offset-4"
       >
-        Ver estado de la silla
+        Ver estado del sillón
       </Link>
     </main>
   );

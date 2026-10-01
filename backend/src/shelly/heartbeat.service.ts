@@ -85,7 +85,7 @@ export class HeartbeatService {
         estado.potenciaW !== null &&
         estado.potenciaW < 1
       ) {
-        alertas.push('Relé encendido pero consumo 0W: silla desenchufada o con falla');
+        alertas.push('Relé encendido pero consumo 0W: sillón desenchufado o con falla');
       }
       if (
         silla.estado !== 'EN_USO' &&

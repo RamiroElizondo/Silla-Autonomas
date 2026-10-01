@@ -324,10 +324,10 @@ function Dashboard({
       </section>
 
       <div className="mt-8 flex items-center justify-between gap-3">
-        <h2 className="text-[13px] font-medium text-tinta-suave">Sillas</h2>
+        <h2 className="text-[13px] font-medium text-tinta-suave">Sillones</h2>
         {form === null && (
           <button onClick={() => setForm("nueva")} className={BTN}>
-            + Agregar silla
+            + Agregar sillón
           </button>
         )}
       </div>
@@ -344,7 +344,7 @@ function Dashboard({
         )}
         {sillas.length === 0 && form === null && (
           <p className="rounded-xl border border-borde bg-marfil px-5 py-6 text-sm text-tinta-muted">
-            Todavía no hay sillas dadas de alta. Agregá la primera con el botón
+            Todavía no hay sillones dados de alta. Agregá el primero con el botón
             de arriba.
           </p>
         )}
@@ -503,7 +503,7 @@ function Dashboard({
                   <div>
                     <span className="text-sm font-medium">
                       {t.estado === "ASIGNADO"
-                        ? `Silla asignada: ${t.silla?.nombre ?? "—"}`
+                        ? `Sillón asignado: ${t.silla?.nombre ?? "—"}`
                         : `Turno ${i + 1} en la fila`}
                     </span>
                     <p className="mt-0.5 text-tinta-muted">
@@ -514,7 +514,7 @@ function Dashboard({
                     </p>
                   </div>
                   <span className="whitespace-nowrap rounded-full bg-panal px-2.5 py-1 text-xs text-tinta-suave">
-                    {t.estado === "ASIGNADO" ? "Por confirmar" : "Esperando silla"}
+                    {t.estado === "ASIGNADO" ? "Por confirmar" : "Esperando sillón"}
                   </span>
                 </li>
               ))}
@@ -559,7 +559,7 @@ function Dashboard({
               <thead>
                 <tr className="text-left text-tinta-muted">
                   <th className="px-4 py-2.5 font-medium">Fecha</th>
-                  <th className="px-2 py-2.5 font-medium">Silla</th>
+                  <th className="px-2 py-2.5 font-medium">Sillón</th>
                   <th className="px-2 py-2.5 font-medium">Monto</th>
                   <th className="px-4 py-2.5 font-medium">Estado</th>
                   <th className="px-4 py-2.5 font-medium">Detalle</th>
@@ -620,7 +620,7 @@ function Dashboard({
               <thead>
                 <tr className="text-left text-tinta-muted">
                   <th className="px-4 py-2.5 font-medium">Código</th>
-                  <th className="px-2 py-2.5 font-medium">Silla</th>
+                  <th className="px-2 py-2.5 font-medium">Sillón</th>
                   <th className="px-2 py-2.5 font-medium">Minutos</th>
                   <th className="px-2 py-2.5 font-medium">Emitido</th>
                   <th className="px-4 py-2.5 font-medium">Estado</th>
@@ -737,7 +737,7 @@ function ResultadoPruebaLinea({
         {resultado.potenciaW != null && ` · ${Math.round(resultado.potenciaW)} W`}
         {resultado.temperaturaC != null &&
           ` · ${Math.round(resultado.temperaturaC)} °C`}
-        {resultado.initialState === "off" && " · al volver la luz queda apagada"}
+        {resultado.initialState === "off" && " · al volver la luz queda apagado"}
       </p>
       {resultado.advertencia && (
         <p className="mt-0.5 text-[13px] text-terracota-oscuro">
@@ -866,7 +866,7 @@ function BadgeCredito({ credito }: { credito: CreditoAdmin }) {
 function BadgeSesion({ estado }: { estado: SesionAdmin["estado"] }) {
   const estilos: Record<SesionAdmin["estado"], [string, string]> = {
     ACTIVA: ["bg-terracota-claro text-terracota-oscuro", "Activa"],
-    SALIDA: ["bg-terracota-claro text-terracota-oscuro", "Levantando silla"],
+    SALIDA: ["bg-terracota-claro text-terracota-oscuro", "Levantando sillón"],
     COMPLETADA: ["bg-salvia-claro text-salvia-oscuro", "Completada"],
     PENDIENTE: ["bg-panal text-tinta-suave", "Pendiente"],
     ESPERANDO_CONFIRMACION: ["bg-panal text-tinta-suave", "Esperando al cliente"],

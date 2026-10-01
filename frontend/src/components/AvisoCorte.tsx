@@ -8,7 +8,7 @@ export function AvisoCorte({ compensados }: { compensados?: string }) {
     <div className="mt-6 w-full rounded-2xl border border-arena bg-panal p-6 text-center">
       <p className="text-[15px] font-medium">Se cortó la luz</p>
       <p className="mt-2 text-sm text-tinta-suave">
-        Tu tiempo quedó en pausa. Apenas vuelva, la silla se enciende sola y
+        Tu tiempo quedó en pausa. Apenas vuelva, el sillón se enciende solo y
         seguís donde estabas.
       </p>
       {compensados && (
@@ -17,7 +17,7 @@ export function AvisoCorte({ compensados }: { compensados?: string }) {
         </p>
       )}
       <p className="mt-3 text-xs text-arena">
-        Vas a tener que apretar el botón de la silla otra vez
+        Vas a tener que apretar el botón del sillón otra vez
       </p>
     </div>
   );

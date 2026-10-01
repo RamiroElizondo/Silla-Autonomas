@@ -11,13 +11,13 @@ const config: Record<
     punto: "bg-salvia",
   },
   PAGO_PENDIENTE: {
-    texto: "Reservada",
+    texto: "Reservado",
     fondo: "bg-panal",
     texto_color: "text-tinta-suave",
     punto: "bg-arena",
   },
   RESERVADA: {
-    texto: "Reservada",
+    texto: "Reservado",
     fondo: "bg-panal",
     texto_color: "text-tinta-suave",
     punto: "bg-arena",

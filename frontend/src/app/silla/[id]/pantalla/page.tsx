@@ -47,8 +47,8 @@ export default function PantallaTV({
         </p>
         <p className="mt-6 text-2xl text-arena">
           {retorno
-            ? "La silla vuelve a levantarse para que puedas bajarte"
-            : "La silla se va a encender para volver a levantarse"}
+            ? "El sillón vuelve a levantarse para que puedas bajarte"
+            : "El sillón se va a encender para volver a levantarse"}
         </p>
         <p className="mt-10 text-[6vw] font-medium leading-none text-terracota-tv tabular-nums lg:text-8xl">
           {segundosSalida ?? 0}s
@@ -77,7 +77,7 @@ export default function PantallaTV({
         </div>
         <p className="mt-8 text-lg text-arena">
           {estado.fase === "GRACIA"
-            ? "Presioná START en la silla para comenzar"
+            ? "Presioná START en el sillón para comenzar"
             : "Disfrutá tu masaje"}
         </p>
       </main>
@@ -122,8 +122,8 @@ export default function PantallaTV({
         ) : (
           <p className="max-w-xs text-center text-lg text-tinta-muted">
             {estado.estado === "PAGO_PENDIENTE" || estado.estado === "RESERVADA"
-              ? "Reservada, en un momento se libera o se ocupa…"
-              : "Silla en mantenimiento"}
+              ? "Reservado, en un momento se libera o se ocupa…"
+              : "Sillón en mantenimiento"}
           </p>
         )}
       </section>

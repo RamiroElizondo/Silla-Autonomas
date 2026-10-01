@@ -60,20 +60,20 @@ describe('HeartbeatService — alerta de relé ON con 0W', () => {
 
   it('relé ON + potenciaW 0 (mide y da 0W real): alerta', async () => {
     const alertas = await chequearYObtenerAlertas(0);
-    expect(alertas).toContain('Relé encendido pero consumo 0W: silla desenchufada o con falla');
+    expect(alertas).toContain('Relé encendido pero consumo 0W: sillón desenchufado o con falla');
   });
 
   it('relé ON + potenciaW null (device sin medición de potencia): NO alerta', async () => {
     const alertas = await chequearYObtenerAlertas(null);
     expect(alertas).not.toContain(
-      'Relé encendido pero consumo 0W: silla desenchufada o con falla',
+      'Relé encendido pero consumo 0W: sillón desenchufado o con falla',
     );
   });
 
   it('relé ON + potenciaW 5 (consumo normal): NO alerta', async () => {
     const alertas = await chequearYObtenerAlertas(5);
     expect(alertas).not.toContain(
-      'Relé encendido pero consumo 0W: silla desenchufada o con falla',
+      'Relé encendido pero consumo 0W: sillón desenchufado o con falla',
     );
   });
 });

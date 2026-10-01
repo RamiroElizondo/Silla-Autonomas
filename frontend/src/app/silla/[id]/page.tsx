@@ -160,10 +160,10 @@ export default function LandingSilla({
 
       {sinEnergia && (
         <div className="mt-6 rounded-2xl border border-arena bg-panal p-6 text-center">
-          <p className="text-[15px] font-medium">Esta silla está sin conexión</p>
+          <p className="text-[15px] font-medium">Este sillón está sin conexión</p>
           <p className="mt-2 text-sm text-tinta-suave">
-            Puede ser un corte de luz en el local. No te la cobramos hasta que
-            podamos encenderla.
+            Puede ser un corte de luz en el local. No te lo cobramos hasta que
+            podamos encenderlo.
           </p>
           <p className="mt-3 text-xs text-arena">
             Esta pantalla se actualiza sola cuando vuelve
@@ -199,7 +199,7 @@ export default function LandingSilla({
             Pago seguro con Mercado Pago
           </p>
           <p className="mt-1.5 text-center text-xs text-arena">
-            La silla se enciende sola al confirmarse el pago
+            El sillón se enciende solo al confirmarse el pago
           </p>
         </>
       )}
@@ -208,7 +208,7 @@ export default function LandingSilla({
         !sinEnergia &&
         (estado.fase === "PAUSA" || estado.fase === "RETORNO") && (
           <div className="mt-6 rounded-2xl border border-borde bg-marfil p-7 text-center">
-            <p className="text-[15px] font-medium">La silla se está liberando</p>
+            <p className="text-[15px] font-medium">El sillón se está liberando</p>
             <p className="mt-2 text-sm text-tinta-muted">
               La persona anterior está terminando de bajarse. Queda libre en{" "}
               <span className="tabular-nums">{segundosSalida ?? 0}s</span>.
@@ -239,9 +239,9 @@ export default function LandingSilla({
       {(estado.estado === "PAGO_PENDIENTE" || estado.estado === "RESERVADA") &&
         !sinEnergia && (
           <div className="mt-6 rounded-2xl border border-borde bg-marfil p-6 text-center">
-            <p className="text-[15px] font-medium">Esta silla está reservada</p>
+            <p className="text-[15px] font-medium">Este sillón está reservado</p>
             <p className="mt-2 text-sm text-tinta-muted">
-              Alguien está por usarla. Si no se confirma en unos minutos, vuelve
+              Alguien está por usarlo. Si no se confirma en unos minutos, vuelve
               a quedar libre.
             </p>
           </div>
@@ -252,15 +252,15 @@ export default function LandingSilla({
           <div className="mt-4 rounded-2xl border border-borde bg-marfil p-6 text-center">
             <p className="text-[15px] font-medium">
               {cola && cola.sillasLibres > 0
-                ? "Hay otra silla libre"
+                ? "Hay otro sillón libre"
                 : "Pagá y esperá tu turno"}
             </p>
             <p className="mt-2 text-sm text-tinta-muted">
               {cola
                 ? cola.enCola > 0
-                  ? `${cola.enCola} persona(s) esperando · ${cola.sillasLibres} de ${cola.sillasTotal} silla(s) libre(s)`
-                  : `${cola.sillasLibres} de ${cola.sillasTotal} silla(s) libre(s)`
-                : "Te anotamos y te avisamos apenas se libere una silla."}
+                  ? `${cola.enCola} persona(s) esperando · ${cola.sillasLibres} de ${cola.sillasTotal} sillón(es) libre(s)`
+                  : `${cola.sillasLibres} de ${cola.sillasTotal} sillón(es) libre(s)`
+                : "Te anotamos y te avisamos apenas se libere un sillón."}
             </p>
           </div>
           <TurnstileWidget onToken={setTurnstileToken} />
@@ -275,14 +275,14 @@ export default function LandingSilla({
             <p className="mt-3 text-center text-sm text-terracota-oscuro">{errorCola}</p>
           )}
           <p className="mt-3 text-center text-xs text-tinta-muted">
-            Te asignamos la primera silla que se libere, no necesariamente esta
+            Te asignamos el primer sillón que se libere, no necesariamente este
           </p>
         </>
       )}
 
       {estado.estado === "FUERA_DE_SERVICIO" && (
         <div className="mt-6 rounded-2xl border border-borde bg-marfil p-6 text-center">
-          <p className="text-[15px] font-medium">Silla en mantenimiento</p>
+          <p className="text-[15px] font-medium">Sillón en mantenimiento</p>
           <p className="mt-2 text-sm text-tinta-muted">
             Disculpá las molestias, pronto vuelve a estar disponible.
           </p>

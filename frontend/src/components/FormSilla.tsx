@@ -97,7 +97,7 @@ export function FormSilla({
       className="rounded-xl border border-borde bg-marfil p-4 sm:p-5"
     >
       <p className="text-[15px] font-medium">
-        {silla ? `Editar ${silla.nombre}` : "Nueva silla"}
+        {silla ? `Editar ${silla.nombre}` : "Nuevo sillón"}
       </p>
 
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -107,7 +107,7 @@ export function FormSilla({
             required
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}
-            placeholder="Silla 2"
+            placeholder="Sillón 2"
             className={claseInput}
           />
         </label>
@@ -140,7 +140,7 @@ export function FormSilla({
 
       <fieldset className="mt-4">
         <legend className="text-xs font-medium text-tinta-suave">
-          Tiempos de la silla (segundos)
+          Tiempos del sillón (segundos)
         </legend>
         <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <label className="flex flex-col gap-1.5">
@@ -168,7 +168,7 @@ export function FormSilla({
             />
           </label>
           <label className="flex flex-col gap-1.5">
-            <span className="text-xs text-tinta-muted">Retorno (levantar silla)</span>
+            <span className="text-xs text-tinta-muted">Retorno (levantar sillón)</span>
             <input
               required
               type="number"
@@ -182,9 +182,9 @@ export function FormSilla({
         </div>
         <span className="mt-1.5 block text-xs text-arena">
           Gracia: tiempo extra (que el cliente no ve) para sentarse y presionar
-          START. Al terminar, la silla se apaga durante la pausa y después
+          START. Al terminar, el sillón se apaga durante la pausa y después
           recibe corriente durante el retorno para que, con START, vuelva a
-          levantarse. Si el retorno es muy largo arranca otra pasada y la silla
+          levantarse. Si el retorno es muy largo arranca otra pasada y el sillón
           se vuelve a acostar. Retorno en 0 desactiva esta fase.
         </span>
       </fieldset>
@@ -267,7 +267,7 @@ export function FormSilla({
           disabled={guardando}
           className="min-h-11 rounded-[10px] bg-terracota px-4 py-2 text-[13px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60 sm:min-h-0"
         >
-          {guardando ? "Guardando…" : silla ? "Guardar cambios" : "Crear silla"}
+          {guardando ? "Guardando…" : silla ? "Guardar cambios" : "Crear sillón"}
         </button>
         <button
           type="button"

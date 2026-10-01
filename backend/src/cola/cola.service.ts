@@ -162,13 +162,13 @@ export class ColaService implements OnApplicationBootstrap {
       where: { estado: { not: 'FUERA_DE_SERVICIO' } },
     });
     if (sillas.length === 0) {
-      throw new NotFoundException('No hay sillas disponibles en este local');
+      throw new NotFoundException('No hay sillones disponibles en este local');
     }
     // Si el local está sin luz no hay turno que valga: mejor no cobrarlo.
     const conEnergia = sillas.filter((s) => !this.heartbeat.estaOffline(s.id));
     if (conEnergia.length === 0) {
       throw new ConflictException(
-        'Las sillas están sin conexión en este momento. Probá en unos minutos.',
+        'Los sillones están sin conexión en este momento. Probá en unos minutos.',
       );
     }
     const silla = conEnergia[0];
@@ -214,7 +214,7 @@ export class ColaService implements OnApplicationBootstrap {
 
     try {
       const pref = await this.mp.crearPreferencia({
-        titulo: `Turno para silla de masaje — ${turno.duracionMin} min`,
+        titulo: `Turno para sillón de masaje — ${turno.duracionMin} min`,
         precio: Number(turno.monto),
         externalReference,
         itemId: turno.id,

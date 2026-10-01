@@ -40,7 +40,7 @@ export class SillasService {
     const silla = await this.cache.obtenerOCargar(id, () =>
       this.prisma.silla.findUnique({ where: { id } }),
     );
-    if (!silla) throw new NotFoundException('Silla no encontrada');
+    if (!silla) throw new NotFoundException('Sillón no encontrado');
     return silla;
   }
 

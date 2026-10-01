@@ -91,14 +91,14 @@ export class AdminService {
     if (valor === null) return null; // el equipo no lo reporta
     if (valor === INITIAL_STATE_ESPERADO) return null;
     const explicacion: Record<string, string> = {
-      on: 'la silla arranca encendida cada vez que vuelve la luz',
+      on: 'el sillón arranca encendido cada vez que vuelve la luz',
       restore_last:
-        'al volver la luz la silla se enciende sola si estaba encendida al cortarse',
+        'al volver la luz el sillón se enciende solo si estaba encendido al cortarse',
       match_input: 'el relé sigue al interruptor físico, no al sistema',
     };
     return (
       `El Shelly tiene "Acción al encender" en "${valor}": ` +
-      `${explicacion[valor] ?? 'puede encender la silla sin sesión detrás'}. ` +
+      `${explicacion[valor] ?? 'puede encender el sillón sin sesión detrás'}. ` +
       `Ponelo en "Apagar" desde la app Shelly (Configuración → Salida → Acción al encender).`
     );
   }
@@ -123,7 +123,7 @@ export class AdminService {
     });
     if (duplicada) {
       throw new BadRequestException(
-        `El device ${dto.deviceIdShelly} ya está vinculado a la silla "${duplicada.nombre}"`,
+        `El device ${dto.deviceIdShelly} ya está vinculado al sillón "${duplicada.nombre}"`,
       );
     }
 
@@ -226,7 +226,7 @@ export class AdminService {
 
   async actualizarSilla(id: string, dto: ActualizarSillaDto) {
     const silla = await this.prisma.silla.findUnique({ where: { id } });
-    if (!silla) throw new NotFoundException('Silla no encontrada');
+    if (!silla) throw new NotFoundException('Sillón no encontrado');
 
     // Si cambia el dispositivo, revalidar contra Shelly Cloud
     let modeloShelly = silla.modeloShelly;
@@ -242,7 +242,7 @@ export class AdminService {
   /** Prueba de conexión: estado real del Shelly de una silla, en el momento. */
   async probarSilla(id: string) {
     const silla = await this.prisma.silla.findUnique({ where: { id } });
-    if (!silla) throw new NotFoundException('Silla no encontrada');
+    if (!silla) throw new NotFoundException('Sillón no encontrado');
     // Con settings: es el lugar donde el dueño revisa un equipo ya vinculado,
     // así que también le confirmamos que `initial_state` siga bien puesto.
     const estado = await this.shelly.getEstado(silla.deviceIdShelly, true);

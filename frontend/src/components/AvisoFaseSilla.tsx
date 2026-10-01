@@ -21,19 +21,19 @@ export function AvisoFaseSilla({
 
   const textos = {
     GRACIA: {
-      titulo: "Presioná START en la silla",
+      titulo: "Presioná START en el sillón",
       detalle:
-        "Con el botón START del control la silla se reclina y empieza tu masaje.",
+        "Con el botón START del control el sillón se reclina y empieza tu masaje.",
     },
     PAUSA: {
       titulo: "Tu masaje terminó",
       detalle:
-        "Quedate sentado un momento: la silla se va a encender de nuevo para volver a levantarse.",
+        "Quedate sentado un momento: el sillón se va a encender de nuevo para volver a levantarse.",
     },
     RETORNO: {
       titulo: "Presioná START ahora",
       detalle:
-        "La silla vuelve a la posición vertical para que puedas bajarte con comodidad.",
+        "El sillón vuelve a la posición vertical para que puedas bajarte con comodidad.",
     },
   }[fase];
 

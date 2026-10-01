@@ -23,7 +23,7 @@ async function main() {
   if (!existente) {
     await prisma.silla.create({
       data: {
-        nombre: 'Silla 1',
+        nombre: 'Sillón 1',
         precio: 3000,
         duracionMin: 10,
         deviceIdShelly: 'CAMBIAR_DEVICE_ID',

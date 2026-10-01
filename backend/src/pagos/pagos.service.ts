@@ -166,7 +166,7 @@ export class PagosService {
       select: { id: true, sillaId: true },
     });
     if (!sesion || sesion.sillaId !== sillaId) {
-      throw new NotFoundException('El pago no corresponde a esta silla');
+      throw new NotFoundException('El pago no corresponde a este sillón');
     }
 
     await this.procesarPagoVerificado(paymentId, pago, {
