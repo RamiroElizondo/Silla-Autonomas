@@ -13,7 +13,7 @@ function crearServicio(
     pendientesPorHash?: Record<string, number>;
     crearPreferencia?: jest.Mock;
     obtenerPago?: jest.Mock;
-    esperarConfirmacion?: jest.Mock;
+    activarSesion?: jest.Mock;
     procesarPagoAprobado?: jest.Mock;
     expirarPagoPendiente?: jest.Mock;
     prismaSesion?: Partial<Record<string, jest.Mock>>;
@@ -51,7 +51,7 @@ function crearServicio(
   const sesiones: any = {
     crearSesionPendiente: jest.fn().mockResolvedValue({ id: 'sesion-1' }),
     expirarPagoPendiente: opciones.expirarPagoPendiente ?? jest.fn(),
-    esperarConfirmacion: opciones.esperarConfirmacion ?? jest.fn().mockResolvedValue(undefined),
+    activarSesion: opciones.activarSesion ?? jest.fn().mockResolvedValue(undefined),
   };
   const sillas: any = {
     obtener: jest.fn().mockResolvedValue({
@@ -306,7 +306,7 @@ describe('PagosService.confirmarRetornoSilla', () => {
     const resultado = await servicio.confirmarRetornoSilla('silla-1', 'pay-1');
 
     expect(resultado).toEqual({ ok: true });
-    expect(sesiones.esperarConfirmacion).toHaveBeenCalledWith('sesion-1');
+    expect(sesiones.activarSesion).toHaveBeenCalledWith('sesion-1');
   });
 
   it('el pago se aprobó pero la sesión no quedó ACTIVA tras procesar: ConflictException ("ya venció")', async () => {
@@ -482,7 +482,7 @@ describe('PagosService.procesarNotificacionPago — pago rechazado no activa nad
     await servicio.procesarNotificacionPago('pay-1', {});
     s.restore();
 
-    expect(sesiones.esperarConfirmacion).not.toHaveBeenCalled();
+    expect(sesiones.activarSesion).not.toHaveBeenCalled();
     expect(prisma.pago.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ estado: 'RECHAZADO' }) }),
     );
@@ -513,7 +513,7 @@ describe('PagosService.procesarNotificacionPago — pago rechazado no activa nad
 });
 
 describe('PagosService.procesarNotificacionPago — errores de infraestructura no se tragan', () => {
-  it('si sesiones.esperarConfirmacion tira un error que no es ConflictException, se relanza tal cual', async () => {
+  it('si sesiones.activarSesion tira un error que no es ConflictException, se relanza tal cual', async () => {
     const errorInfra = new Error('DB caída');
     const { servicio, prisma } = crearServicio({
       obtenerPago: jest.fn().mockResolvedValue({
@@ -525,7 +525,7 @@ describe('PagosService.procesarNotificacionPago — errores de infraestructura n
       prismaSesion: {
         findUnique: jest.fn().mockResolvedValue({ id: 'sesion-1', monto: 1000 }),
       },
-      esperarConfirmacion: jest.fn().mockRejectedValue(errorInfra),
+      activarSesion: jest.fn().mockRejectedValue(errorInfra),
     });
 
     const s = silenciarLogger();
@@ -637,7 +637,7 @@ describe('PagosService — registrarEstadoPago: colisión concurrente en payment
     await expect(servicio.procesarNotificacionPago('pay-1', {})).resolves.toBeUndefined();
     s.restore();
 
-    expect(sesiones.esperarConfirmacion).not.toHaveBeenCalled();
+    expect(sesiones.activarSesion).not.toHaveBeenCalled();
   });
 
   it('el create falla con un error que no es de Prisma: se relanza tal cual', async () => {

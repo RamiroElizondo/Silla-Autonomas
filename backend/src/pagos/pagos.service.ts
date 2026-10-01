@@ -388,10 +388,12 @@ export class PagosService {
     }
 
     try {
-      await this.sesiones.esperarConfirmacion(sesion.id);
-      this.logger.log(
-        `Pago ${paymentId} aprobado → sesión ${sesion.id} reservada, esperando que el cliente confirme`,
-      );
+      // Pago directo (sillón libre, sin cola): se enciende al toque. La gracia
+      // de inicio ya le da tiempo para sentarse y presionar START sin que
+      // corra su reloj. La ventana de confirmación de 2 min queda solo para
+      // los turnos de la cola (ColaService), que pueden estar distraídos.
+      await this.sesiones.activarSesion(sesion.id);
+      this.logger.log(`Pago ${paymentId} aprobado → sesión ${sesion.id} activada`);
     } catch (e) {
       if (e instanceof ConflictException) {
         // La sesión ya no estaba PENDIENTE (se canceló por timeout, por el
