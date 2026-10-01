@@ -353,13 +353,13 @@ function Dashboard({
             key={silla.id}
             className="relative flex flex-col gap-3.5 rounded-xl border border-borde bg-marfil p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:px-5"
           >
-            <div className="absolute right-3 top-3 sm:right-4">
+            <div className="absolute right-3 top-3 sm:static sm:order-1 sm:ml-auto sm:shrink-0">
               <EstadoBadge
                 estado={silla.estado}
                 sinEnergia={silla.salud ? !silla.salud.online : false}
               />
             </div>
-            <div className="flex min-w-0 items-start gap-3.5 pr-28 sm:items-center">
+            <div className="flex min-w-0 items-start gap-3.5 pr-28 sm:items-center sm:pr-0">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-terracota-claro text-terracota">
                 <IconoSilla />
               </div>
@@ -381,7 +381,7 @@ function Dashboard({
                 ))}
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 sm:justify-end sm:gap-2.5">
+            <div className="flex flex-wrap items-center gap-2 sm:order-2 sm:shrink-0 sm:justify-end sm:gap-2.5">
               <button
                 onClick={() => probar(silla.id)}
                 disabled={pruebas[silla.id] === "cargando"}
