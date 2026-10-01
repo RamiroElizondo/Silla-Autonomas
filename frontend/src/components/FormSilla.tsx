@@ -26,6 +26,14 @@ export function FormSilla({
     silla ? String(silla.duracionMin) : "10",
   );
   const [deviceId, setDeviceId] = useState(silla?.deviceIdShelly ?? "");
+  // Tiempos propios de la masajeadora (ver backend/src/sesiones/reloj.util.ts).
+  const [graciaInicioSeg, setGraciaInicioSeg] = useState(
+    String(silla?.graciaInicioSeg ?? 30),
+  );
+  const [pausaRetornoSeg, setPausaRetornoSeg] = useState(
+    String(silla?.pausaRetornoSeg ?? 10),
+  );
+  const [retornoSeg, setRetornoSeg] = useState(String(silla?.retornoSeg ?? 40));
 
   const [verificacion, setVerificacion] = useState<VerificacionDispositivo | null>(
     null,
@@ -61,6 +69,9 @@ export function FormSilla({
       precio: Number(precio),
       duracionMin: Number(duracionMin),
       deviceIdShelly: deviceId.trim(),
+      graciaInicioSeg: Number(graciaInicioSeg),
+      pausaRetornoSeg: Number(pausaRetornoSeg),
+      retornoSeg: Number(retornoSeg),
     };
     try {
       if (silla) {
@@ -126,6 +137,57 @@ export function FormSilla({
           />
         </label>
       </div>
+
+      <fieldset className="mt-4">
+        <legend className="text-xs font-medium text-tinta-suave">
+          Tiempos de la silla (segundos)
+        </legend>
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs text-tinta-muted">Gracia al inicio</span>
+            <input
+              required
+              type="number"
+              min={0}
+              max={120}
+              value={graciaInicioSeg}
+              onChange={(e) => setGraciaInicioSeg(e.target.value)}
+              className={claseInput}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs text-tinta-muted">Pausa al terminar</span>
+            <input
+              required
+              type="number"
+              min={0}
+              max={60}
+              value={pausaRetornoSeg}
+              onChange={(e) => setPausaRetornoSeg(e.target.value)}
+              className={claseInput}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="text-xs text-tinta-muted">Retorno (levantar silla)</span>
+            <input
+              required
+              type="number"
+              min={0}
+              max={120}
+              value={retornoSeg}
+              onChange={(e) => setRetornoSeg(e.target.value)}
+              className={claseInput}
+            />
+          </label>
+        </div>
+        <span className="mt-1.5 block text-xs text-arena">
+          Gracia: tiempo extra (que el cliente no ve) para sentarse y presionar
+          START. Al terminar, la silla se apaga durante la pausa y después
+          recibe corriente durante el retorno para que, con START, vuelva a
+          levantarse. Si el retorno es muy largo arranca otra pasada y la silla
+          se vuelve a acostar. Retorno en 0 desactiva esta fase.
+        </span>
+      </fieldset>
 
       <div className="mt-3 flex flex-col gap-1.5">
         <label

@@ -18,7 +18,9 @@ export default function PantallaTV({
   // La pantalla TV es un display de pared: nunca hay que pausar el
   // sondeo cuando el navegador la considera "oculta" (aunque en un
   // kiosco fullscreen sin cambio de pestaña eso rara vez dispara).
-  const { estado, segundos } = useEstadoSilla(id, 3000, { pausarEnOculto: false });
+  const { estado, segundos, segundosSalida } = useEstadoSilla(id, 3000, {
+    pausarEnOculto: false,
+  });
   const [urlLanding, setUrlLanding] = useState("");
 
   useEffect(() => {
@@ -29,6 +31,28 @@ export default function PantallaTV({
     return (
       <main className="flex min-h-dvh items-center justify-center bg-crema">
         <p className="animate-pulse text-lg text-tinta-muted">Conectando…</p>
+      </main>
+    );
+  }
+
+  if (estado.estado === "EN_USO" && (estado.fase === "PAUSA" || estado.fase === "RETORNO")) {
+    const retorno = estado.fase === "RETORNO";
+    return (
+      <main className="flex min-h-dvh flex-col items-center justify-center bg-tinta px-[6vw] text-center">
+        <p className="text-base uppercase tracking-[0.14em] text-arena">
+          {estado.nombre} · Terminó el masaje
+        </p>
+        <p className="mt-6 text-[7vw] font-medium leading-tight text-crema lg:text-7xl">
+          {retorno ? "Presioná START" : "Quedate sentado un momento"}
+        </p>
+        <p className="mt-6 text-2xl text-arena">
+          {retorno
+            ? "La silla vuelve a levantarse para que puedas bajarte"
+            : "La silla se va a encender para volver a levantarse"}
+        </p>
+        <p className="mt-10 text-[6vw] font-medium leading-none text-terracota-tv tabular-nums lg:text-8xl">
+          {segundosSalida ?? 0}s
+        </p>
       </main>
     );
   }
@@ -51,7 +75,11 @@ export default function PantallaTV({
             style={{ width: `${pct}%` }}
           />
         </div>
-        <p className="mt-8 text-lg text-arena">Disfrutá tu masaje</p>
+        <p className="mt-8 text-lg text-arena">
+          {estado.fase === "GRACIA"
+            ? "Presioná START en la silla para comenzar"
+            : "Disfrutá tu masaje"}
+        </p>
       </main>
     );
   }

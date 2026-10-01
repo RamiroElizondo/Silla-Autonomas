@@ -24,6 +24,12 @@ function crearServicio(
         { id: 'silla-1', precio: 1000, duracionMin: 10 },
       ]),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUnique: jest.fn().mockResolvedValue({
+        id: 'silla-1',
+        graciaInicioSeg: 30,
+        pausaRetornoSeg: 10,
+        retornoSeg: 40,
+      }),
     },
     turno: {
       create: jest.fn((args) => Promise.resolve({ id: 'turno-1', ...args.data })),

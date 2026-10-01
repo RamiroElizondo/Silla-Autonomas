@@ -30,6 +30,7 @@ export function useEstadoSilla(
   const [estado, setEstado] = useState<EstadoPublico | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [segundos, setSegundos] = useState<number | null>(null);
+  const [segundosSalida, setSegundosSalida] = useState<number | null>(null);
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activoRef = useRef(true);
@@ -40,6 +41,7 @@ export function useEstadoSilla(
       if (!activoRef.current) return;
       setEstado(data);
       setSegundos(data.segundosRestantes);
+      setSegundosSalida(data.segundosSalida ?? null);
       setError(null);
       return proximoRetrasoMs({ intervaloBaseMs: intervaloMs, retryAfterMs: null });
     } catch (e) {
@@ -89,20 +91,37 @@ export function useEstadoSilla(
     };
   }, [sondear, intervaloMs, pausarEnOculto]);
 
-  // Countdown local entre sondeos
+  // Countdown local entre sondeos. En la gracia de inicio (esperando que el
+  // cliente presione START) el reloj queda congelado: no se descuenta.
   const segundosRef = useRef(segundos);
   segundosRef.current = segundos;
+  const fase = estado?.fase ?? null;
+  const masajeCorriendo =
+    estado?.estado === "EN_USO" && fase !== "GRACIA" && fase !== "PAUSA" && fase !== "RETORNO";
   useEffect(() => {
-    if (estado?.estado !== "EN_USO") return;
+    if (!masajeCorriendo) return;
     const id = setInterval(() => {
       if (segundosRef.current !== null && segundosRef.current > 0) {
         setSegundos(segundosRef.current - 1);
       }
     }, 1000);
     return () => clearInterval(id);
-  }, [estado?.estado]);
+  }, [masajeCorriendo]);
 
-  return { estado, segundos, error, refrescar: sondear };
+  const salidaRef = useRef(segundosSalida);
+  salidaRef.current = segundosSalida;
+  const enSalida = fase === "PAUSA" || fase === "RETORNO";
+  useEffect(() => {
+    if (!enSalida) return;
+    const id = setInterval(() => {
+      if (salidaRef.current !== null && salidaRef.current > 0) {
+        setSegundosSalida(salidaRef.current - 1);
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [enSalida, fase]);
+
+  return { estado, segundos, segundosSalida, fase, error, refrescar: sondear };
 }
 
 export function formatearTimer(segundos: number | null): string {

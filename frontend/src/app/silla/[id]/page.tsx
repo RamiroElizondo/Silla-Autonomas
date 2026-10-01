@@ -21,7 +21,7 @@ export default function LandingSilla({
   const { id } = use(params);
   const router = useRouter();
   const [chequeandoTurno, setChequeandoTurno] = useState(true);
-  const { estado, segundos, error } = useEstadoSilla(id, 5000);
+  const { estado, segundos, segundosSalida, error } = useEstadoSilla(id, 5000);
   const [pagando, setPagando] = useState(false);
   const [errorPago, setErrorPago] = useState<string | null>(null);
   const [cola, setCola] = useState<ColaResumen | null>(null);
@@ -204,7 +204,22 @@ export default function LandingSilla({
         </>
       )}
 
-      {estado.estado === "EN_USO" && !sinEnergia && (
+      {estado.estado === "EN_USO" &&
+        !sinEnergia &&
+        (estado.fase === "PAUSA" || estado.fase === "RETORNO") && (
+          <div className="mt-6 rounded-2xl border border-borde bg-marfil p-7 text-center">
+            <p className="text-[15px] font-medium">La silla se está liberando</p>
+            <p className="mt-2 text-sm text-tinta-muted">
+              La persona anterior está terminando de bajarse. Queda libre en{" "}
+              <span className="tabular-nums">{segundosSalida ?? 0}s</span>.
+            </p>
+          </div>
+        )}
+
+      {estado.estado === "EN_USO" &&
+        !sinEnergia &&
+        estado.fase !== "PAUSA" &&
+        estado.fase !== "RETORNO" && (
         <>
           <div className="mt-6 rounded-2xl border border-borde bg-marfil p-7 text-center">
             <p className="text-[13px] text-tinta-muted">Tiempo restante</p>

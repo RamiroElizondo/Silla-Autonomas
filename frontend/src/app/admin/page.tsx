@@ -273,7 +273,7 @@ function Dashboard({
   const hoy = new Date().toDateString();
   const esteMes = new Date().getMonth();
   const cobradas = recientes.filter(
-    (s) => s.estado === "ACTIVA" || s.estado === "COMPLETADA",
+    (s) => s.estado === "ACTIVA" || s.estado === "SALIDA" || s.estado === "COMPLETADA",
   );
   const deHoy = cobradas.filter((s) => new Date(s.creadaEn).toDateString() === hoy);
   const delMes = cobradas.filter(
@@ -866,6 +866,7 @@ function BadgeCredito({ credito }: { credito: CreditoAdmin }) {
 function BadgeSesion({ estado }: { estado: SesionAdmin["estado"] }) {
   const estilos: Record<SesionAdmin["estado"], [string, string]> = {
     ACTIVA: ["bg-terracota-claro text-terracota-oscuro", "Activa"],
+    SALIDA: ["bg-terracota-claro text-terracota-oscuro", "Levantando silla"],
     COMPLETADA: ["bg-salvia-claro text-salvia-oscuro", "Completada"],
     PENDIENTE: ["bg-panal text-tinta-suave", "Pendiente"],
     ESPERANDO_CONFIRMACION: ["bg-panal text-tinta-suave", "Esperando al cliente"],

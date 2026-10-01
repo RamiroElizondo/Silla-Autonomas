@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { AvisoCorte } from "@/components/AvisoCorte";
+import { AvisoFaseSilla } from "@/components/AvisoFaseSilla";
 import { BarraProgreso } from "@/components/BarraProgreso";
 import { TarjetaCredito } from "@/components/TarjetaCredito";
 import { formatearTimer, useEstadoSilla } from "@/hooks/useEstadoSilla";
@@ -28,12 +29,19 @@ export default function Exito({
     );
   }, [id]);
 
-  const { sesion, segundos, segundosVentana, refrescar } = useEstadoSesion(sesionId, 3000);
+  const { sesion, segundos, segundosVentana, segundosSalida, refrescar } = useEstadoSesion(
+    sesionId,
+    3000,
+  );
   const [confirmando, setConfirmando] = useState(false);
   const [errorSentarse, setErrorSentarse] = useState<string | null>(null);
   // Respaldo para cuando no tenemos el id (ej. el cliente abrió el link de
   // vuelta en otro navegador): al menos mostramos el estado de la silla.
-  const { estado: silla, segundos: segundosSilla } = useEstadoSilla(id, 3000);
+  const {
+    estado: silla,
+    segundos: segundosSilla,
+    segundosSalida: segundosSalidaSilla,
+  } = useEstadoSilla(id, 3000);
 
   useEffect(() => {
     const query = new URLSearchParams(window.location.search);
@@ -83,7 +91,11 @@ export default function Exito({
   const enCurso = sesion?.estado === "ACTIVA" && !sesion.interrumpida;
   const interrumpida = sesion?.estado === "ACTIVA" && sesion.interrumpida;
   const esperandoEnergia = sesion?.estado === "ESPERANDO_ENERGIA";
+  // Fase SALIDA: terminó el tiempo y la silla hace el pulso de retorno.
+  const enSalida = sesion?.estado === "SALIDA";
   const activaSinSesion = !sesion && silla?.estado === "EN_USO";
+  const faseSilla = activaSinSesion ? (silla?.fase ?? null) : null;
+  const salidaSinSesion = faseSilla === "PAUSA" || faseSilla === "RETORNO";
   // Sesión cancelada SIN vale (con vale se muestra la tarjeta de crédito).
   // Ej.: parada de emergencia del encargado, o el pago nunca llegó.
   const cancelada = sesion?.estado === "CANCELADA" && !sesion.credito;
@@ -94,7 +106,7 @@ export default function Exito({
     if (esperandoEnergia) return "Pago confirmado";
     if (interrumpida) return "Tu masaje está en pausa";
     if (sesion?.credito) return "Te debemos un turno";
-    if (sesion?.estado === "COMPLETADA") return "Terminó tu masaje";
+    if (sesion?.estado === "COMPLETADA" || enSalida || salidaSinSesion) return "Terminó tu masaje";
     if (detenidaPorEncargado) return "Se detuvo tu masaje";
     if (cancelada) return "Se canceló tu sesión";
     if (enCurso || activaSinSesion) return "¡Pago confirmado!";
@@ -158,11 +170,19 @@ export default function Exito({
         </>
       )}
 
-      {(enCurso || activaSinSesion) && (
+      {(enSalida || salidaSinSesion) && (
+        <AvisoFaseSilla
+          fase={enSalida ? sesion?.fase : faseSilla}
+          segundosSalida={enSalida ? segundosSalida : segundosSalidaSilla}
+        />
+      )}
+
+      {(enCurso || (activaSinSesion && !salidaSinSesion)) && (
         <>
           <p className="mt-2 text-sm text-tinta-suave">
             Tu silla ya está encendida. Sentate y disfrutá.
           </p>
+          <AvisoFaseSilla fase={sesion ? sesion.fase : faseSilla} />
           <p className="mt-6 text-[44px] font-medium leading-none tabular-nums">
             {formatearTimer(timer)}
           </p>

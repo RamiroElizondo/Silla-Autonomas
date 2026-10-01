@@ -6,6 +6,7 @@ import {
   RESTO_DESPRECIABLE_SEG,
   SesionesService,
   TIMEOUT_PAGO_MIN,
+  tiemposDeSilla,
 } from './sesiones.service';
 
 beforeEach(() => {
@@ -58,6 +59,12 @@ const filaBase = {
   segundosCompensados: 0,
   motivoCierre: null,
   duracionMin: 10,
+  // Sin gracia ni retorno: los tests históricos cubren el comportamiento
+  // base; la gracia y la fase SALIDA tienen su propio describe al final.
+  graciaInicioSeg: 0,
+  pausaRetornoSeg: 0,
+  retornoSeg: 0,
+  salidaHasta: null,
   sillaId: 'silla-1',
   esManual: false,
   pagadaEn: null,
@@ -1258,6 +1265,9 @@ describe('SesionesService — ventana de confirmación tras el pago directo', ()
     sillaId: 'silla-1',
     estado: 'PENDIENTE',
     duracionMin: 10,
+    graciaInicioSeg: 30,
+    pausaRetornoSeg: 10,
+    retornoSeg: 40,
     silla: { id: 'silla-1', nombre: 'Silla 1', deviceIdShelly: 'dev-1' },
   };
 
@@ -1340,5 +1350,217 @@ describe('SesionesService — ventana de confirmación tras el pago directo', ()
       where: { id: 'silla-1', estado: 'RESERVADA' },
       data: { estado: 'LIBRE' },
     });
+  });
+});
+
+describe('SesionesService — gracia de inicio y fase SALIDA (retorno de la silla)', () => {
+  const conTiempos = {
+    ...filaBase,
+    graciaInicioSeg: 30,
+    pausaRetornoSeg: 10,
+    retornoSeg: 40,
+  };
+
+  it('tiemposDeSilla copia los tres tiempos de la silla a la sesión', () => {
+    expect(
+      tiemposDeSilla({ graciaInicioSeg: 25, pausaRetornoSeg: 8, retornoSeg: 35 }),
+    ).toEqual({ graciaInicioSeg: 25, pausaRetornoSeg: 8, retornoSeg: 35 });
+  });
+
+  it('activarSesion: el relé y finProgramado incluyen la gracia de inicio', async () => {
+    const { servicio, prisma, shelly } = crearServicio();
+    prisma.sesion.findUnique.mockResolvedValue({
+      ...conTiempos,
+      estado: 'PENDIENTE',
+      finProgramado: null,
+    });
+    const antes = Date.now();
+
+    await servicio.activarSesion('sesion-1');
+
+    expect(shelly.setRele).toHaveBeenCalledWith(
+      'dev-1',
+      true,
+      10 * 60 + 30 + MARGEN_AUTO_OFF_SEG,
+    );
+    const update = prisma.sesion.update.mock.calls.find(
+      ([args]: any) => args.data?.estado === 'ACTIVA',
+    );
+    const fin: Date = update[0].data.finProgramado;
+    expect(fin.getTime() - antes).toBeGreaterThanOrEqual((10 * 60 + 30) * 1000);
+    expect(fin.getTime() - antes).toBeLessThan((10 * 60 + 31) * 1000);
+  });
+
+  it('estadoPublico: durante la gracia el reloj queda congelado en la duración contratada', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.sesion.findUnique.mockResolvedValue({
+      ...conTiempos,
+      finProgramado: new Date(Date.now() + (10 * 60 + 20) * 1000),
+    });
+
+    const r = await servicio.estadoPublico('sesion-1');
+
+    expect(r.segundosRestantes).toBe(600);
+    expect(r.fase).toBe('GRACIA');
+  });
+
+  it('estadoPublico: pasada la gracia el reloj baja normalmente', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.sesion.findUnique.mockResolvedValue({
+      ...conTiempos,
+      finProgramado: new Date(Date.now() + 300 * 1000),
+    });
+
+    const r = await servicio.estadoPublico('sesion-1');
+
+    expect(r.segundosRestantes).toBe(300);
+    expect(r.fase).toBe('MASAJE');
+  });
+
+  it('estadoPublico: en SALIDA informa PAUSA y luego RETORNO', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.sesion.findUnique.mockResolvedValue({
+      ...conTiempos,
+      estado: 'SALIDA',
+      salidaHasta: new Date(Date.now() + 45 * 1000),
+    });
+    const pausa = await servicio.estadoPublico('sesion-1');
+    expect(pausa.fase).toBe('PAUSA');
+    expect(pausa.segundosSalida).toBe(5);
+
+    servicio.invalidarCache('sesion-1');
+    prisma.sesion.findUnique.mockResolvedValue({
+      ...conTiempos,
+      estado: 'SALIDA',
+      salidaHasta: new Date(Date.now() + 25 * 1000),
+    });
+    const retorno = await servicio.estadoPublico('sesion-1');
+    expect(retorno.fase).toBe('RETORNO');
+    expect(retorno.segundosSalida).toBe(25);
+  });
+
+  it('flujo completo: OFF → pausa → pulso ON con toggle_after → OFF y silla LIBRE', async () => {
+    const { servicio, prisma, shelly } = crearServicio();
+    let estado = 'ACTIVA';
+    prisma.sesion.findUnique.mockImplementation(() =>
+      Promise.resolve({ ...conTiempos, estado }),
+    );
+    prisma.sesion.updateMany.mockImplementation((args: any) => {
+      if (args.data?.estado) estado = args.data.estado;
+      return Promise.resolve({ count: 1 });
+    });
+
+    await servicio.finalizarSesion('sesion-1', 'tiempo_cumplido');
+
+    // 1) Corta la corriente y pasa a SALIDA (la silla sigue ocupada).
+    expect(shelly.setRele).toHaveBeenNthCalledWith(1, 'dev-1', false);
+    expect(estado).toBe('SALIDA');
+    expect(prisma.silla.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ estado: 'LIBRE' }) }),
+    );
+
+    // 2) A los 10 s: pulso de retorno por 40 s, cortado por el propio Shelly.
+    await jest.advanceTimersByTimeAsync(9_999);
+    expect(shelly.setRele).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(shelly.setRele).toHaveBeenNthCalledWith(2, 'dev-1', true, 40);
+
+    // 3) A los 40 s del pulso: OFF de respaldo y silla LIBRE.
+    await jest.advanceTimersByTimeAsync(40_000);
+    expect(shelly.setRele).toHaveBeenNthCalledWith(3, 'dev-1', false);
+    expect(estado).toBe('COMPLETADA');
+    expect(prisma.silla.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ estado: 'LIBRE' }) }),
+    );
+  });
+
+  it('con retornoSeg = 0 libera la silla apenas termina, sin fase SALIDA', async () => {
+    const { servicio, prisma, shelly } = crearServicio();
+    prisma.sesion.findUnique.mockResolvedValue({ ...conTiempos, retornoSeg: 0 });
+
+    await servicio.finalizarSesion('sesion-1', 'tiempo_cumplido');
+
+    expect(prisma.sesion.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ estado: 'COMPLETADA' }) }),
+    );
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(shelly.setRele).toHaveBeenCalledTimes(1);
+  });
+
+  it('si el pulso de retorno falla (sin luz), libera la silla igual', async () => {
+    const { servicio, prisma, shelly } = crearServicio();
+    prisma.sesion.findUnique.mockResolvedValue({ ...conTiempos, estado: 'SALIDA' });
+    shelly.setRele.mockRejectedValueOnce(new Error('offline'));
+
+    await servicio.iniciarRetorno('sesion-1');
+
+    expect(prisma.sesion.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ estado: { in: ['SALIDA'] } }),
+        data: expect.objectContaining({ estado: 'COMPLETADA' }),
+      }),
+    );
+  });
+
+  describe('recuperación tras reinicio', () => {
+    function conSalida(prisma: any, salidaHasta: Date) {
+      prisma.sesion.findMany.mockImplementation((args: any) =>
+        Promise.resolve(
+          args.where.estado === 'SALIDA'
+            ? [{ ...conTiempos, estado: 'SALIDA', salidaHasta }]
+            : [],
+        ),
+      );
+      prisma.sesion.findUnique.mockResolvedValue({ ...conTiempos, estado: 'SALIDA', salidaHasta });
+    }
+
+    it('si la salida ya venció, cierra y libera', async () => {
+      const { servicio, prisma, shelly } = crearServicio();
+      conSalida(prisma, new Date(Date.now() - 1000));
+
+      await servicio.onApplicationBootstrap();
+
+      expect(shelly.setRele).toHaveBeenCalledWith('dev-1', false);
+      expect(prisma.sesion.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ estado: 'COMPLETADA' }) }),
+      );
+    });
+
+    it('si estaba en la pausa, reprograma el pulso de retorno', async () => {
+      const { servicio, prisma, shelly } = crearServicio();
+      conSalida(prisma, new Date(Date.now() + 45_000)); // 5 s de pausa por delante
+
+      await servicio.onApplicationBootstrap();
+      expect(shelly.setRele).not.toHaveBeenCalled();
+
+      await jest.advanceTimersByTimeAsync(5_000);
+      expect(shelly.setRele).toHaveBeenCalledWith('dev-1', true, 40);
+    });
+
+    it('si el pulso ya estaba corriendo, solo programa el cierre (no vuelve a encender)', async () => {
+      const { servicio, prisma, shelly } = crearServicio();
+      conSalida(prisma, new Date(Date.now() + 20_000));
+
+      await servicio.onApplicationBootstrap();
+      await jest.advanceTimersByTimeAsync(20_000);
+
+      expect(shelly.setRele).not.toHaveBeenCalledWith('dev-1', true, expect.anything());
+      expect(shelly.setRele).toHaveBeenCalledWith('dev-1', false);
+    });
+  });
+
+  it('la parada de emergencia también corta una sesión en SALIDA', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.silla.findUnique.mockResolvedValue({ id: 'silla-1', nombre: 'Silla 1', deviceIdShelly: 'dev-1' });
+    prisma.sesion.findFirst.mockResolvedValue({ ...conTiempos, estado: 'SALIDA' });
+
+    const r = await servicio.detenerEmergencia('silla-1');
+
+    expect(prisma.sesion.findFirst).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        estado: { in: expect.arrayContaining(['SALIDA']) },
+      }),
+    });
+    expect(r.sesionCancelada).toBe('sesion-1');
   });
 });

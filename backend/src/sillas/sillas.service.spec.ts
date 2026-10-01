@@ -4,6 +4,7 @@ import { SillasService } from './sillas.service';
 function crearServicio(
   opciones: {
     silla?: Record<string, unknown> | null;
+    sesion?: Record<string, unknown> | null;
     sinEnergia?: boolean;
   } = {},
 ) {
@@ -19,7 +20,10 @@ function crearServicio(
     .fn()
     .mockResolvedValue(opciones.silla === undefined ? sillaDefault : opciones.silla);
 
-  const prisma: any = { silla: { findUnique } };
+  const prisma: any = {
+    silla: { findUnique },
+    sesion: { findFirst: jest.fn().mockResolvedValue(opciones.sesion ?? null) },
+  };
   const heartbeat: any = { estaOffline: jest.fn().mockReturnValue(opciones.sinEnergia ?? false) };
 
   const servicio = new SillasService(prisma, heartbeat);
@@ -98,5 +102,53 @@ describe('SillasService — cache TTL de estado (Bloque C)', () => {
     heartbeat.estaOffline.mockReturnValue(true);
     const segundo = await servicio.estadoPublico('silla-1');
     expect(segundo.sinEnergia).toBe(true);
+  });
+});
+
+describe('SillasService.estadoPublico — gracia de inicio y fase SALIDA', () => {
+  const enUso = {
+    id: 'silla-1',
+    nombre: 'Silla 1',
+    estado: 'EN_USO',
+    precio: 1000,
+    duracionMin: 10,
+    finSesionActual: new Date(Date.now() + 620_000),
+  };
+
+  it('durante la gracia congela el reloj en la duración y marca fase GRACIA', async () => {
+    const { servicio } = crearServicio({
+      silla: enUso,
+      sesion: {
+        estado: 'ACTIVA',
+        duracionMin: 10,
+        retornoSeg: 40,
+        finProgramado: new Date(Date.now() + 620_000),
+        salidaHasta: null,
+      },
+    });
+
+    const r = await servicio.estadoPublico('silla-1');
+
+    expect(r.segundosRestantes).toBe(600);
+    expect(r.fase).toBe('GRACIA');
+  });
+
+  it('en SALIDA informa la fase y los segundos que faltan', async () => {
+    const { servicio } = crearServicio({
+      silla: enUso,
+      sesion: {
+        estado: 'SALIDA',
+        duracionMin: 10,
+        retornoSeg: 40,
+        finProgramado: new Date(),
+        salidaHasta: new Date(Date.now() + 30_000),
+      },
+    });
+
+    const r = await servicio.estadoPublico('silla-1');
+
+    expect(r.estado).toBe('EN_USO');
+    expect(r.fase).toBe('RETORNO');
+    expect(r.segundosSalida).toBe(30);
   });
 });

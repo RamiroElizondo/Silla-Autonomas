@@ -13,6 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from '../shelly/heartbeat.service';
 import { ShellyService } from '../shelly/shelly.service';
 import { SillasService } from '../sillas/sillas.service';
+import { calcularReloj } from './reloj.util';
 
 /** Minutos que se reserva la silla mientras el cliente paga. */
 export const TIMEOUT_PAGO_MIN = 3;
@@ -64,6 +65,32 @@ export const MAX_ESPERA_ENERGIA_SEG = 10 * 60;
  */
 export const VENTANA_CONFIRMACION_SESION_MIN = 2;
 
+/**
+ * Valores por defecto de los tiempos propios de la masajeadora (ver
+ * reloj.util.ts). Cada silla tiene los suyos, editables desde el panel.
+ */
+export const GRACIA_INICIO_SEG_DEFAULT = 30;
+export const PAUSA_RETORNO_SEG_DEFAULT = 10;
+export const RETORNO_SEG_DEFAULT = 40;
+
+/**
+ * Tiempos de una silla o sesión, con los defaults si faltan. Faltan cuando el
+ * cliente de Prisma quedó desactualizado respecto del schema (no se corrió
+ * `prisma generate`): sin esto, `undefined * 1000` da NaN y Prisma rechaza
+ * la fecha inválida en pleno cierre de sesión.
+ */
+export function tiemposDeSilla(silla: {
+  graciaInicioSeg?: number | null;
+  pausaRetornoSeg?: number | null;
+  retornoSeg?: number | null;
+}) {
+  return {
+    graciaInicioSeg: silla.graciaInicioSeg ?? GRACIA_INICIO_SEG_DEFAULT,
+    pausaRetornoSeg: silla.pausaRetornoSeg ?? PAUSA_RETORNO_SEG_DEFAULT,
+    retornoSeg: silla.retornoSeg ?? RETORNO_SEG_DEFAULT,
+  };
+}
+
 /** Fila de `sesion` tal como la cachea `estadoPublico` (Bloque C): incluye
  * el `silla` mínimo que necesita la respuesta, nada más. */
 type SesionConSilla = Prisma.SesionGetPayload<{
@@ -73,8 +100,9 @@ type SesionConSilla = Prisma.SesionGetPayload<{
 /**
  * Máquina de estados de la silla:
  *
- *   LIBRE → PAGO_PENDIENTE → EN_USO → LIBRE
- *            (timeout 3min)   (timeout duracionMin)
+ *   LIBRE → PAGO_PENDIENTE → EN_USO ──────────────────────→ LIBRE
+ *            (timeout 3min)   (gracia + duracionMin, luego
+ *                              sesión SALIDA: pausa + retorno)
  *
  * Con energía de por medio hay dos desvíos, que dispara EnergiaService:
  *   - el pago entra pero el Shelly no responde  → sesión ESPERANDO_ENERGIA
@@ -139,6 +167,25 @@ export class SesionesService implements OnApplicationBootstrap {
           this.finalizarSesion(sesion.id, 'tiempo_cumplido'),
         );
         this.logger.log(`Sesión ${sesion.id} reprogramada hasta ${fin.toISOString()}`);
+      }
+    }
+
+    // Sesiones en la fase de salida (pausa + pulso de retorno)
+    const enSalida = await this.prisma.sesion.findMany({
+      where: { estado: 'SALIDA' },
+    });
+    for (const sesion of enSalida) {
+      const fin = sesion.salidaHasta ?? new Date();
+      const inicioRetorno = new Date(fin.getTime() - tiemposDeSilla(sesion).retornoSeg * 1000);
+      if (fin <= new Date()) {
+        await this.cerrarSalida(sesion.id);
+      } else if (inicioRetorno > new Date()) {
+        // Todavía en la pausa: el pulso de retorno no se mandó.
+        this.programar(sesion.id, inicioRetorno, () => this.iniciarRetorno(sesion.id));
+      } else {
+        // El pulso ya está corriendo (y su `toggle_after` vive en el equipo):
+        // solo falta cerrar.
+        this.programar(sesion.id, fin, () => this.cerrarSalida(sesion.id));
       }
     }
 
@@ -227,6 +274,7 @@ export class SesionesService implements OnApplicationBootstrap {
         externalReference,
         monto: silla.precio,
         duracionMin: silla.duracionMin,
+        ...tiemposDeSilla(silla),
         ipHash: ipHash ?? undefined,
       },
     });
@@ -352,6 +400,11 @@ export class SesionesService implements OnApplicationBootstrap {
     // entregar" arranca en el primer intento, no en el último.
     const pagadaEn = sesion.esManual ? null : (sesion.pagadaEn ?? new Date());
 
+    // El relé queda encendido la duración contratada MÁS la gracia de inicio
+    // (tiempo para sentarse y presionar START). El cliente no ve la gracia:
+    // su reloj queda en la duración completa hasta que termina (reloj.util).
+    const segundosRele = sesion.duracionMin * 60 + tiemposDeSilla(sesion).graciaInicioSeg;
+
     // Primero el relé: si Shelly falla, no cobramos tiempo que no corre.
     // `toggle_after` deja programado el apagado en la nube de Shelly: si el
     // backend se cae antes de mandar el OFF, el relé se corta igual.
@@ -359,7 +412,7 @@ export class SesionesService implements OnApplicationBootstrap {
       await this.shelly.setRele(
         sesion.silla.deviceIdShelly,
         true,
-        sesion.duracionMin * 60 + MARGEN_AUTO_OFF_SEG,
+        segundosRele + MARGEN_AUTO_OFF_SEG,
       );
     } catch (e) {
       return this.marcarEsperandoEnergia(sesion.id, sesion.silla.nombre, pagadaEn, e);
@@ -368,7 +421,7 @@ export class SesionesService implements OnApplicationBootstrap {
     // El reloj del cliente arranca cuando el relé ya cerró, no cuando lo
     // pedimos: la ida y vuelta con Shelly Cloud puede llevarse un segundo.
     const inicio = new Date();
-    const finProgramado = new Date(inicio.getTime() + sesion.duracionMin * 60_000);
+    const finProgramado = new Date(inicio.getTime() + segundosRele * 1000);
 
     const [actualizada] = await this.prisma.$transaction([
       this.prisma.sesion.update({
@@ -679,11 +732,114 @@ export class SesionesService implements OnApplicationBootstrap {
       );
     }
 
+    // Sin pulso de retorno configurado: se libera como siempre.
+    if (tiemposDeSilla(sesion).retornoSeg <= 0) {
+      await this.cerrarYLiberar(sesionId, sesion.sillaId, {
+        estado: 'COMPLETADA',
+        motivo,
+        estadoTurno: 'COMPLETADA',
+        desde: ['ACTIVA'],
+      });
+      this.logger.log(`Silla ${sesion.silla.nombre}: LIBRE (${motivo})`);
+      return;
+    }
+
+    // Fase SALIDA: la silla queda acostada al cortarle la corriente. Tras una
+    // pausa se le da un pulso de energía para que el cliente presione START y
+    // la silla vuelva a la posición vertical. La silla sigue EN_USO: no se
+    // puede pagar ni la toma la cola hasta que termine.
+    const ahora = new Date();
+    const salidaHasta = new Date(
+      ahora.getTime() + (tiemposDeSilla(sesion).pausaRetornoSeg + tiemposDeSilla(sesion).retornoSeg) * 1000,
+    );
+    const reclamada = await this.prisma.sesion.updateMany({
+      where: { id: sesionId, estado: 'ACTIVA', interrumpidaEn: null },
+      data: { estado: 'SALIDA', salidaHasta, motivoCierre: motivo },
+    });
+    if (reclamada.count === 0) return;
+    this.invalidarCache(sesionId);
+    await this.prisma.silla.update({
+      where: { id: sesion.sillaId },
+      data: { finSesionActual: salidaHasta },
+    });
+    this.sillas.invalidarCache(sesion.sillaId);
+
+    const inicioRetorno = new Date(ahora.getTime() + tiemposDeSilla(sesion).pausaRetornoSeg * 1000);
+    this.programar(sesionId, inicioRetorno, () => this.iniciarRetorno(sesionId));
+    this.logger.log(
+      `Silla ${sesion.silla.nombre}: tiempo cumplido, SALIDA (retorno a las ` +
+        `${inicioRetorno.toISOString()}, libre a las ${salidaHasta.toISOString()})`,
+    );
+  }
+
+  /**
+   * Pulso de retorno: corriente por `retornoSeg` para que el cliente presione
+   * START y la silla se levante. El corte lo hace el propio Shelly con
+   * `toggle_after` — no depende de la latencia de la nube, y hay que cortar
+   * justo ahí: si la silla arranca otra pasada se vuelve a acostar.
+   */
+  async iniciarRetorno(sesionId: string) {
+    this.cancelarTimer(sesionId);
+    const sesion = await this.prisma.sesion.findUnique({
+      where: { id: sesionId },
+      include: { silla: true },
+    });
+    if (!sesion || sesion.estado !== 'SALIDA') return;
+
+    try {
+      await this.shelly.setRele(sesion.silla.deviceIdShelly, true, tiemposDeSilla(sesion).retornoSeg);
+    } catch (e) {
+      // Sin luz o sin nube: no hay pulso que dar. Se libera la silla igual.
+      this.logger.error(
+        `No se pudo dar el pulso de retorno a ${sesion.silla.nombre}: ${e}`,
+      );
+      await this.cerrarSalida(sesionId);
+      return;
+    }
+
+    // El pulso arranca cuando el relé cerró, no cuando se programó.
+    const salidaHasta = new Date(Date.now() + tiemposDeSilla(sesion).retornoSeg * 1000);
+    await this.prisma.sesion.updateMany({
+      where: { id: sesionId, estado: 'SALIDA' },
+      data: { salidaHasta },
+    });
+    this.invalidarCache(sesionId);
+    await this.prisma.silla.update({
+      where: { id: sesion.sillaId },
+      data: { finSesionActual: salidaHasta },
+    });
+    this.sillas.invalidarCache(sesion.sillaId);
+
+    this.programar(sesionId, salidaHasta, () => this.cerrarSalida(sesionId));
+    this.logger.log(
+      `Silla ${sesion.silla.nombre}: pulso de retorno por ${tiemposDeSilla(sesion).retornoSeg}s`,
+    );
+  }
+
+  /** Fin de la fase SALIDA: OFF de respaldo y la silla queda LIBRE. */
+  async cerrarSalida(sesionId: string) {
+    this.cancelarTimer(sesionId);
+    const sesion = await this.prisma.sesion.findUnique({
+      where: { id: sesionId },
+      include: { silla: true },
+    });
+    if (!sesion || sesion.estado !== 'SALIDA') return;
+
+    // Normalmente el `toggle_after` ya lo cortó; esto es por las dudas.
+    try {
+      await this.shelly.setRele(sesion.silla.deviceIdShelly, false);
+    } catch (e) {
+      this.logger.warn(
+        `No se pudo confirmar el OFF tras el retorno de ${sesion.silla.nombre}: ${e}`,
+      );
+    }
+
+    const motivo = sesion.motivoCierre ?? 'tiempo_cumplido';
     await this.cerrarYLiberar(sesionId, sesion.sillaId, {
       estado: 'COMPLETADA',
       motivo,
       estadoTurno: 'COMPLETADA',
-      desde: ['ACTIVA'],
+      desde: ['SALIDA'],
     });
     this.logger.log(`Silla ${sesion.silla.nombre}: LIBRE (${motivo})`);
   }
@@ -706,7 +862,7 @@ export class SesionesService implements OnApplicationBootstrap {
       estado: 'COMPLETADA' | 'CANCELADA';
       motivo: string;
       estadoTurno: 'COMPLETADA' | 'CANCELADA';
-      desde: ('ACTIVA' | 'ESPERANDO_ENERGIA')[];
+      desde: ('ACTIVA' | 'ESPERANDO_ENERGIA' | 'SALIDA')[];
     },
   ): Promise<boolean> {
     const ahora = new Date();
@@ -721,6 +877,7 @@ export class SesionesService implements OnApplicationBootstrap {
         finReal: ahora,
         motivoCierre: opciones.motivo,
         interrumpidaEn: null,
+        salidaHasta: null,
       },
     });
     if (reclamada.count === 0) return false;
@@ -753,7 +910,10 @@ export class SesionesService implements OnApplicationBootstrap {
     await this.shelly.setRele(silla.deviceIdShelly, false);
 
     const activa = await this.prisma.sesion.findFirst({
-      where: { sillaId, estado: { in: ['ACTIVA', 'ESPERANDO_ENERGIA', 'ESPERANDO_CONFIRMACION'] } },
+      where: {
+        sillaId,
+        estado: { in: ['ACTIVA', 'SALIDA', 'ESPERANDO_ENERGIA', 'ESPERANDO_CONFIRMACION'] },
+      },
     });
     if (activa) {
       this.cancelarTimer(activa.id);
@@ -764,6 +924,7 @@ export class SesionesService implements OnApplicationBootstrap {
           finReal: new Date(),
           motivoCierre: 'parada_de_emergencia',
           interrumpidaEn: null,
+          salidaHasta: null,
         },
       });
       this.invalidarCache(activa.id);
@@ -802,6 +963,7 @@ export class SesionesService implements OnApplicationBootstrap {
         externalReference: `manual-${crypto.randomUUID()}`,
         monto: 0,
         duracionMin: duracionMin ?? silla.duracionMin,
+        ...tiemposDeSilla(silla),
         esManual: true,
       },
     });
@@ -861,10 +1023,10 @@ export class SesionesService implements OnApplicationBootstrap {
     );
     if (!sesion) throw new NotFoundException('Sesión no encontrada');
 
-    const segundosRestantes =
-      sesion.estado === 'ACTIVA' && sesion.finProgramado && !sesion.interrumpidaEn
-        ? Math.max(0, Math.round((sesion.finProgramado.getTime() - Date.now()) / 1000))
-        : null;
+    // Durante un corte el reloj se congela (null): el backend no descuenta.
+    const reloj = sesion.interrumpidaEn
+      ? { segundosRestantes: null, fase: null, segundosSalida: null }
+      : calcularReloj(sesion);
 
     const segundosVentana =
       sesion.estado === 'ESPERANDO_CONFIRMACION'
@@ -887,7 +1049,9 @@ export class SesionesService implements OnApplicationBootstrap {
       sillaId: sesion.silla.id,
       sillaNombre: sesion.silla.nombre,
       duracionMin: sesion.duracionMin,
-      segundosRestantes,
+      segundosRestantes: reloj.segundosRestantes,
+      fase: reloj.fase,
+      segundosSalida: reloj.segundosSalida,
       segundosVentana,
       interrumpida: sesion.interrumpidaEn !== null,
       cortes: sesion.cortes,

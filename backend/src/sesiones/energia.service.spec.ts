@@ -631,3 +631,22 @@ describe('EnergiaService.revisar — excepción no capturada', () => {
     expect(prisma.sesion.findMany).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('EnergiaService.revisar — pulso de retorno (fase SALIDA)', () => {
+  it('busca las sillas con sesión viva incluyendo SALIDA, para no apagar el pulso de retorno', async () => {
+    const { servicio, prisma, heartbeat } = crearServicio();
+    heartbeat.getSalud.mockReturnValue([
+      salud({ sillaId: 'silla-1', online: true, releEncendido: true }),
+    ]);
+    prisma.sesion.findMany.mockResolvedValue([]);
+
+    await servicio.revisar();
+
+    expect(prisma.sesion.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { estado: { in: expect.arrayContaining(['SALIDA']) } },
+        select: { sillaId: true },
+      }),
+    );
+  });
+});

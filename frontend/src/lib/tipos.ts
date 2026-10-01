@@ -11,6 +11,14 @@ export type EstadoSilla =
   | "EN_USO"
   | "FUERA_DE_SERVICIO";
 
+/**
+ * Fase del turno en curso (ver backend/src/sesiones/reloj.util.ts):
+ * GRACIA = encendida esperando que el cliente presione START (reloj congelado),
+ * MASAJE = el reloj corre, PAUSA = terminó y la silla está apagada unos
+ * segundos, RETORNO = corriente para que, presionando START, la silla se levante.
+ */
+export type FaseTurno = "GRACIA" | "MASAJE" | "PAUSA" | "RETORNO";
+
 /** Respuesta de GET /sillas/:id/estado */
 export interface EstadoPublico {
   id: string;
@@ -19,6 +27,9 @@ export interface EstadoPublico {
   precio: number;
   duracionMin: number;
   segundosRestantes: number | null;
+  fase?: FaseTurno | null;
+  /** En PAUSA/RETORNO: segundos hasta que termine esa sub-fase. */
+  segundosSalida?: number | null;
   /** El Shelly no responde: casi siempre corte de luz en el local. */
   sinEnergia: boolean;
 }
@@ -57,6 +68,9 @@ export interface SillaAdmin {
   estado: EstadoSilla;
   precio: number;
   duracionMin: number;
+  graciaInicioSeg: number;
+  pausaRetornoSeg: number;
+  retornoSeg: number;
   deviceIdShelly: string;
   modeloShelly: string | null;
   finSesionActual: string | null;
@@ -96,6 +110,9 @@ export interface CrearSillaPayload {
   precio: number;
   duracionMin: number;
   deviceIdShelly: string;
+  graciaInicioSeg?: number;
+  pausaRetornoSeg?: number;
+  retornoSeg?: number;
 }
 
 /** Payload de PATCH /admin/sillas/:id (todos opcionales) */
@@ -117,6 +134,7 @@ export type EstadoSesion =
   | "ESPERANDO_CONFIRMACION"
   | "ESPERANDO_ENERGIA"
   | "ACTIVA"
+  | "SALIDA"
   | "COMPLETADA"
   | "CANCELADA";
 
@@ -128,6 +146,9 @@ export interface EstadoSesionPublico {
   sillaNombre: string;
   duracionMin: number;
   segundosRestantes: number | null;
+  fase?: FaseTurno | null;
+  /** En PAUSA/RETORNO: segundos hasta que termine esa sub-fase. */
+  segundosSalida?: number | null;
   /** ESPERANDO_CONFIRMACION: lo que le queda al cliente para sentarse y confirmar. */
   segundosVentana: number | null;
   /** Corte de energía en curso: la silla está apagada y el reloj, congelado. */

@@ -29,3 +29,13 @@ export const PRECIO_MAXIMO = 1_000_000;
 
 /** Largo máximo del nombre de la silla (se muestra en landing, TV y panel). */
 export const NOMBRE_MAX_LENGTH = 80;
+
+/**
+ * Topes de los tiempos propios de la masajeadora, en segundos (ver
+ * src/sesiones/reloj.util.ts). 0 desactiva la fase. Las cotas solo atajan
+ * errores de tipeo: un pulso de retorno largo hace que la silla arranque
+ * otra pasada y se vuelva a acostar.
+ */
+export const GRACIA_INICIO_MAX_SEG = 120;
+export const PAUSA_RETORNO_MAX_SEG = 60;
+export const RETORNO_MAX_SEG = 120;

@@ -22,7 +22,7 @@ import { CreditosService } from '../creditos/creditos.service';
 import { FallosCanjeService } from '../creditos/fallos-canje.service';
 import { MercadoPagoService } from '../mercadopago/mercadopago.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { SesionesService } from '../sesiones/sesiones.service';
+import { SesionesService, tiemposDeSilla } from '../sesiones/sesiones.service';
 import { HeartbeatService } from '../shelly/heartbeat.service';
 import { SillasService } from '../sillas/sillas.service';
 import { generarCodigo } from './codigo.util';
@@ -359,12 +359,17 @@ export class ColaService implements OnApplicationBootstrap {
 
     this.cancelarTimer(turnoId);
 
+    // Los tiempos propios de la masajeadora (gracia de inicio, retorno) son
+    // de la silla asignada, no del turno.
+    const silla = await this.prisma.silla.findUnique({ where: { id: turno.sillaId } });
+
     const sesion = await this.prisma.sesion.create({
       data: {
         sillaId: turno.sillaId,
         externalReference: `turno-sesion:${turno.id}`,
         monto: turno.monto,
         duracionMin: turno.duracionMin,
+        ...(silla ? tiemposDeSilla(silla) : {}),
       },
     });
 

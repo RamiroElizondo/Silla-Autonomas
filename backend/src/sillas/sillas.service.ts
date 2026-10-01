@@ -1,9 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { Silla } from '@prisma/client';
+import { Sesion, Silla } from '@prisma/client';
 import { CACHE_TTL_ESTADO_MS } from '../common/cache.config';
 import { TtlCache } from '../common/ttl-cache';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from '../shelly/heartbeat.service';
+import { calcularReloj } from '../sesiones/reloj.util';
+
+type SesionVigente = Pick<
+  Sesion,
+  'estado' | 'duracionMin' | 'retornoSeg' | 'finProgramado' | 'salidaHasta'
+>;
 
 @Injectable()
 export class SillasService {
@@ -17,6 +23,13 @@ export class SillasService {
    * momento en que se cargó la fila.
    */
   private readonly cache = new TtlCache<Silla | null>(CACHE_TTL_ESTADO_MS);
+
+  /**
+   * Sesión vigente (ACTIVA o SALIDA) de cada silla EN_USO, con lo mínimo
+   * para calcular el reloj que ve el cliente (gracia congelada, fase de
+   * salida). Mismo TTL e invalidación que la fila de la silla.
+   */
+  private readonly cacheSesion = new TtlCache<SesionVigente | null>(CACHE_TTL_ESTADO_MS);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -40,6 +53,7 @@ export class SillasService {
    */
   invalidarCache(id: string): void {
     this.cache.invalidar(id);
+    this.cacheSesion.invalidar(id);
   }
 
   /** Estado público para la landing y la pantalla TV. */
@@ -47,11 +61,32 @@ export class SillasService {
     const silla = await this.obtener(id);
 
     let segundosRestantes: number | null = null;
-    if (silla.estado === 'EN_USO' && silla.finSesionActual) {
-      segundosRestantes = Math.max(
-        0,
-        Math.round((silla.finSesionActual.getTime() - Date.now()) / 1000),
+    let fase: string | null = null;
+    let segundosSalida: number | null = null;
+    if (silla.estado === 'EN_USO') {
+      const sesion = await this.cacheSesion.obtenerOCargar(id, () =>
+        this.prisma.sesion.findFirst({
+          where: { sillaId: id, estado: { in: ['ACTIVA', 'SALIDA'] } },
+          select: {
+            estado: true,
+            duracionMin: true,
+            retornoSeg: true,
+            finProgramado: true,
+            salidaHasta: true,
+          },
+        }),
       );
+      if (sesion) {
+        const reloj = calcularReloj(sesion);
+        segundosRestantes = reloj.segundosRestantes;
+        fase = reloj.fase;
+        segundosSalida = reloj.segundosSalida;
+      } else if (silla.finSesionActual) {
+        segundosRestantes = Math.max(
+          0,
+          Math.round((silla.finSesionActual.getTime() - Date.now()) / 1000),
+        );
+      }
     }
 
     return {
@@ -61,6 +96,9 @@ export class SillasService {
       precio: Number(silla.precio),
       duracionMin: silla.duracionMin,
       segundosRestantes,
+      // GRACIA (esperando START, reloj congelado) | MASAJE | PAUSA | RETORNO
+      fase,
+      segundosSalida,
       // El relé no contesta: casi siempre es corte de luz en el local. La
       // landing esconde el botón de pagar — no cobramos lo que no podemos
       // entregar.

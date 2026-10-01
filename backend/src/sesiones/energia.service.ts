@@ -214,7 +214,9 @@ export class EnergiaService {
     const conSesion = new Set(
       (
         await this.prisma.sesion.findMany({
-          where: { estado: { in: ['ACTIVA', 'ESPERANDO_ENERGIA'] } },
+          // SALIDA incluida: durante el pulso de retorno el relé está
+          // encendido a propósito.
+          where: { estado: { in: ['ACTIVA', 'SALIDA', 'ESPERANDO_ENERGIA'] } },
           select: { sillaId: true },
         })
       ).map((s) => s.sillaId),

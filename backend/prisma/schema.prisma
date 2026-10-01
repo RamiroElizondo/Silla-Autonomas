@@ -20,6 +20,7 @@ enum EstadoSesion {
   ESPERANDO_CONFIRMACION // pago aprobado, silla reservada: el cliente tiene unos minutos para sentarse y confirmar
   ESPERANDO_ENERGIA // pago aprobado pero el Shelly estaba offline: no se pudo encender todavía
   ACTIVA // pagada o activada manualmente, silla encendida
+  SALIDA // tiempo cumplido: pausa + pulso de retorno para que la silla se levante y el cliente pueda salir
   COMPLETADA // terminó su tiempo normalmente
   CANCELADA // pago no llegó, parada de emergencia, corte de energía largo, etc.
 }
@@ -55,6 +56,12 @@ model Silla {
   estado          EstadoSilla @default(LIBRE)
   precio          Decimal     @db.Decimal(10, 2)
   duracionMin     Int         @default(10) @map("duracion_min")
+  // Tiempos propios de la masajeadora (ver SesionesService): gracia para que
+  // el cliente se siente y presione START, pausa con la silla apagada al
+  // terminar, y pulso de energía para que vuelva a la posición vertical.
+  graciaInicioSeg Int         @default(30) @map("gracia_inicio_seg")
+  pausaRetornoSeg Int         @default(10) @map("pausa_retorno_seg")
+  retornoSeg      Int         @default(40) @map("retorno_seg")
   deviceIdShelly  String      @map("device_id_shelly")
   // Modelo/generación detectados al vincular (ej: "S3SW-001X16EU / G3")
   modeloShelly    String?     @map("modelo_shelly")
@@ -74,6 +81,13 @@ model Sesion {
   externalReference String       @unique @map("external_reference")
   monto             Decimal      @db.Decimal(10, 2)
   duracionMin       Int          @map("duracion_min")
+  // Copia de los tiempos de la silla al crear la sesión (igual que
+  // duracionMin): cambiarlos en el panel no afecta una sesión en curso.
+  graciaInicioSeg   Int          @default(30) @map("gracia_inicio_seg")
+  pausaRetornoSeg   Int          @default(10) @map("pausa_retorno_seg")
+  retornoSeg        Int          @default(40) @map("retorno_seg")
+  // Fin de la fase SALIDA (pausa + retorno). Null fuera de esa fase.
+  salidaHasta       DateTime?    @map("salida_hasta")
   esManual          Boolean      @default(false) @map("es_manual")
   creadaEn          DateTime     @default(now()) @map("creada_en")
   // Momento en que el pago quedó aprobado. Puede ser anterior a `inicio` si

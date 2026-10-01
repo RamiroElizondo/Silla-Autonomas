@@ -22,6 +22,7 @@ export function useEstadoSesion(
   const [error, setError] = useState<string | null>(null);
   const [segundos, setSegundos] = useState<number | null>(null);
   const [segundosVentana, setSegundosVentana] = useState<number | null>(null);
+  const [segundosSalida, setSegundosSalida] = useState<number | null>(null);
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activoRef = useRef(true);
@@ -34,6 +35,7 @@ export function useEstadoSesion(
       setSesion(data);
       setSegundos(data.segundosRestantes);
       setSegundosVentana(data.segundosVentana ?? null);
+      setSegundosSalida(data.segundosSalida ?? null);
       setError(null);
       return proximoRetrasoMs({ intervaloBaseMs: intervaloMs, retryAfterMs: null });
     } catch (e) {
@@ -86,7 +88,9 @@ export function useEstadoSesion(
 
   const segundosRef = useRef(segundos);
   segundosRef.current = segundos;
-  const corriendo = sesion?.estado === "ACTIVA" && !sesion.interrumpida;
+  // En la gracia de inicio (esperando START) el reloj queda congelado.
+  const corriendo =
+    sesion?.estado === "ACTIVA" && !sesion.interrumpida && sesion.fase !== "GRACIA";
 
   useEffect(() => {
     if (!corriendo) return;
@@ -112,7 +116,21 @@ export function useEstadoSesion(
     return () => clearInterval(id);
   }, [esperandoConfirmacion]);
 
-  return { sesion, segundos, segundosVentana, error, refrescar: sondear };
+  const salidaRef = useRef(segundosSalida);
+  salidaRef.current = segundosSalida;
+  const faseSalida = sesion?.estado === "SALIDA" ? (sesion.fase ?? null) : null;
+
+  useEffect(() => {
+    if (!faseSalida) return;
+    const id = setInterval(() => {
+      if (salidaRef.current !== null && salidaRef.current > 0) {
+        setSegundosSalida(salidaRef.current - 1);
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [faseSalida]);
+
+  return { sesion, segundos, segundosVentana, segundosSalida, error, refrescar: sondear };
 }
 
 /** "1 minuto y 20 segundos" — para contarle al cliente lo que le devolvimos. */
