@@ -971,3 +971,59 @@ describe('ColaService — timers programados: éxito y manejo de errores', () =>
     expect(spyProgramar).toHaveBeenCalledWith('turno-1', expect.any(Date), expect.any(Function));
   });
 });
+
+describe('ColaService.estadoTurno — gracia de inicio y salida (todo cliente de la cola también)', () => {
+  function turnoEnUso(sesion: Record<string, unknown>) {
+    return {
+      id: 'turno-1',
+      codigo: 'ABC-1234',
+      estado: 'EN_USO',
+      pagadoEn: new Date(),
+      asignadoEn: new Date(),
+      duracionMin: 10,
+      motivoCierre: null,
+      sesionId: 'sesion-1',
+      silla: { id: 'silla-1', nombre: 'Silla 1', finSesionActual: new Date(Date.now() + 620_000) },
+      sesion: {
+        id: 'sesion-1',
+        interrumpidaEn: null,
+        duracionMin: 10,
+        retornoSeg: 40,
+        ...sesion,
+      },
+    };
+  }
+
+  it('durante la gracia el reloj queda en la duración contratada y marca GRACIA', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.turno.findUnique = jest.fn().mockResolvedValue(
+      turnoEnUso({
+        estado: 'ACTIVA',
+        finProgramado: new Date(Date.now() + 620_000),
+        salidaHasta: null,
+      }),
+    );
+
+    const estado = await servicio.estadoTurno('turno-1');
+
+    expect(estado.segundosRestantesSesion).toBe(600);
+    expect(estado.fase).toBe('GRACIA');
+  });
+
+  it('en SALIDA el turno sigue EN_USO e informa RETORNO con los segundos que faltan', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.turno.findUnique = jest.fn().mockResolvedValue(
+      turnoEnUso({
+        estado: 'SALIDA',
+        finProgramado: new Date(),
+        salidaHasta: new Date(Date.now() + 30_000),
+      }),
+    );
+
+    const estado = await servicio.estadoTurno('turno-1');
+
+    expect(estado.estado).toBe('EN_USO');
+    expect(estado.fase).toBe('RETORNO');
+    expect(estado.segundosSalida).toBe(30);
+  });
+});

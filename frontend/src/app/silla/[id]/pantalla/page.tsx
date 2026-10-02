@@ -2,6 +2,7 @@
 
 import { use, useEffect, useState } from "react";
 import QRCode from "react-qr-code";
+import { BotonControl } from "@/components/BotonControl";
 import { EstadoBadge } from "@/components/EstadoBadge";
 import { formatearTimer, useEstadoSilla } from "@/hooks/useEstadoSilla";
 
@@ -43,11 +44,19 @@ export default function PantallaTV({
           {estado.nombre} · Terminó el masaje
         </p>
         <p className="mt-6 text-[7vw] font-medium leading-tight text-crema lg:text-7xl">
-          {retorno ? "Presioná START" : "Quedate sentado un momento"}
+          {retorno ? "Apretá START dos veces" : "Quedate sentado un momento"}
         </p>
+        {retorno && (
+          <div className="relative mt-8">
+            <BotonControl tipo="start" tamano={180} />
+            <span className="absolute -right-4 -top-4 rounded-full bg-terracota-tv px-4 py-1 text-3xl font-medium text-crema">
+              ×2
+            </span>
+          </div>
+        )}
         <p className="mt-6 text-2xl text-arena">
           {retorno
-            ? "El sillón vuelve a levantarse para que puedas bajarte"
+            ? "El sillón vuelve a la posición normal para que puedas bajarte"
             : "El sillón se va a encender para volver a levantarse"}
         </p>
         <p className="mt-10 text-[6vw] font-medium leading-none text-terracota-tv tabular-nums lg:text-8xl">
@@ -75,11 +84,22 @@ export default function PantallaTV({
             style={{ width: `${pct}%` }}
           />
         </div>
-        <p className="mt-8 text-lg text-arena">
-          {estado.fase === "GRACIA"
-            ? "Presioná START en el sillón para comenzar"
-            : "Disfrutá tu masaje"}
-        </p>
+        {estado.fase === "GRACIA" ? (
+          <div className="mt-10 flex items-center gap-10 text-left">
+            <div className="flex items-center gap-4">
+              <BotonControl tipo="start" tamano={110} />
+              <p className="max-w-[14rem] text-xl text-crema">1. Apretá START</p>
+            </div>
+            <div className="flex items-center gap-4">
+              <BotonControl tipo="ok" tamano={100} />
+              <p className="max-w-[16rem] text-xl text-crema">
+                2. Cuando aparezca la pantalla en el control, apretá OK
+              </p>
+            </div>
+          </div>
+        ) : (
+          <p className="mt-8 text-lg text-arena">Disfrutá tu masaje</p>
+        )}
       </main>
     );
   }

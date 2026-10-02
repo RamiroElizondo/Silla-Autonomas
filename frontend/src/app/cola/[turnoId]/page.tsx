@@ -3,6 +3,7 @@
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { AvisoCorte } from "@/components/AvisoCorte";
+import { AvisoFaseSilla } from "@/components/AvisoFaseSilla";
 import { BarraProgreso } from "@/components/BarraProgreso";
 import { TarjetaCredito } from "@/components/TarjetaCredito";
 import { confirmarTurno } from "@/lib/api";
@@ -22,7 +23,8 @@ export default function EstadoTurno({
   params: Promise<{ turnoId: string }>;
 }) {
   const { turnoId } = use(params);
-  const { turno, segundosVentana, segundosSesion, segundosProximaSilla, error } = useEstadoTurno(turnoId, 3000);
+  const { turno, segundosVentana, segundosSesion, segundosProximaSilla, segundosSalida, error } =
+    useEstadoTurno(turnoId, 3000);
   const [confirmando, setConfirmando] = useState(false);
   const [errorConfirmar, setErrorConfirmar] = useState<string | null>(null);
 
@@ -168,7 +170,20 @@ export default function EstadoTurno({
         </div>
       )}
 
-      {turno.estado === "EN_USO" && !turno.interrumpida && turno.sesionEstado !== "ESPERANDO_ENERGIA" && (
+      {turno.estado === "EN_USO" &&
+        !turno.interrumpida &&
+        (turno.fase === "PAUSA" || turno.fase === "RETORNO") && (
+          <>
+            <p className="mt-2 text-sm text-tinta-suave">Terminó tu masaje</p>
+            <AvisoFaseSilla fase={turno.fase} segundosSalida={segundosSalida} />
+          </>
+        )}
+
+      {turno.estado === "EN_USO" &&
+        !turno.interrumpida &&
+        turno.sesionEstado !== "ESPERANDO_ENERGIA" &&
+        turno.fase !== "PAUSA" &&
+        turno.fase !== "RETORNO" && (
         <>
           <p className="mt-2 text-sm text-tinta-suave">
             {turno.sillaAsignada?.nombre ?? "Tu sillón"} está encendido. Disfrutá.
@@ -185,6 +200,7 @@ export default function EstadoTurno({
               />
             </div>
           </div>
+          <AvisoFaseSilla fase={turno.fase} />
         </>
       )}
 

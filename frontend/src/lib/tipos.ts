@@ -280,6 +280,10 @@ export interface EstadoTurnoPublico {
   sillaAsignada: { id: string; nombre: string } | null;
   segundosVentana: number | null;
   segundosRestantesSesion: number | null;
+  /** Fase del sillón asignado (gracia de inicio, masaje, pausa o retorno). */
+  fase?: FaseTurno | null;
+  /** En PAUSA/RETORNO: segundos hasta que termine esa sub-fase. */
+  segundosSalida?: number | null;
   /** Para EN_COLA sin sillas libres: lo que falta para que se libere la primera silla. */
   segundosProximaSilla: number | null;
   duracionMin: number;

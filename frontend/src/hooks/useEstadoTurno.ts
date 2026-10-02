@@ -22,6 +22,7 @@ export function useEstadoTurno(
   const [segundosVentana, setSegundosVentana] = useState<number | null>(null);
   const [segundosSesion, setSegundosSesion] = useState<number | null>(null);
   const [segundosProximaSilla, setSegundosProximaSilla] = useState<number | null>(null);
+  const [segundosSalida, setSegundosSalida] = useState<number | null>(null);
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activoRef = useRef(true);
@@ -34,6 +35,7 @@ export function useEstadoTurno(
       setSegundosVentana(data.segundosVentana);
       setSegundosSesion(data.segundosRestantesSesion);
       setSegundosProximaSilla(data.segundosProximaSilla ?? null);
+      setSegundosSalida(data.segundosSalida ?? null);
       setError(null);
       return proximoRetrasoMs({ intervaloBaseMs: intervaloMs, retryAfterMs: null });
     } catch (e) {
@@ -91,6 +93,11 @@ export function useEstadoTurno(
   const proximaRef = useRef(segundosProximaSilla);
   proximaRef.current = segundosProximaSilla;
 
+  const salidaRef = useRef(segundosSalida);
+  salidaRef.current = segundosSalida;
+  const fase = turno?.fase ?? null;
+  const enSalida = fase === "PAUSA" || fase === "RETORNO";
+
   useEffect(() => {
     if (turno?.estado !== "ASIGNADO" && turno?.estado !== "EN_USO" && turno?.estado !== "EN_COLA") return;
     const id = setInterval(() => {
@@ -100,12 +107,30 @@ export function useEstadoTurno(
       if (turno?.estado === "ASIGNADO" && ventanaRef.current !== null && ventanaRef.current > 0) {
         setSegundosVentana(ventanaRef.current - 1);
       }
-      if (turno?.estado === "EN_USO" && sesionRef.current !== null && sesionRef.current > 0) {
+      // En la gracia de inicio el reloj queda quieto (esperando START + OK).
+      if (
+        turno?.estado === "EN_USO" &&
+        fase !== "GRACIA" &&
+        !enSalida &&
+        sesionRef.current !== null &&
+        sesionRef.current > 0
+      ) {
         setSegundosSesion(sesionRef.current - 1);
+      }
+      if (turno?.estado === "EN_USO" && enSalida && salidaRef.current !== null && salidaRef.current > 0) {
+        setSegundosSalida(salidaRef.current - 1);
       }
     }, 1000);
     return () => clearInterval(id);
-  }, [turno?.estado]);
+  }, [turno?.estado, fase, enSalida]);
 
-  return { turno, segundosVentana, segundosSesion, segundosProximaSilla, error, refrescar: sondear };
+  return {
+    turno,
+    segundosVentana,
+    segundosSesion,
+    segundosProximaSilla,
+    segundosSalida,
+    error,
+    refrescar: sondear,
+  };
 }

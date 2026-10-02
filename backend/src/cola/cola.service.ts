@@ -23,6 +23,7 @@ import { FallosCanjeService } from '../creditos/fallos-canje.service';
 import { MercadoPagoService } from '../mercadopago/mercadopago.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { SesionesService, tiemposDeSilla } from '../sesiones/sesiones.service';
+import { calcularReloj, FaseReloj } from '../sesiones/reloj.util';
 import { HeartbeatService } from '../shelly/heartbeat.service';
 import { SillasService } from '../sillas/sillas.service';
 import { generarCodigo } from './codigo.util';
@@ -40,7 +41,17 @@ type ResumenCola = { enCola: number; sillasLibres: number; sillasTotal: number }
 type TurnoConIncludes = Prisma.TurnoGetPayload<{
   include: {
     silla: true;
-    sesion: { select: { id: true; estado: true; interrumpidaEn: true } };
+    sesion: {
+      select: {
+        id: true;
+        estado: true;
+        interrumpidaEn: true;
+        duracionMin: true;
+        retornoSeg: true;
+        finProgramado: true;
+        salidaHasta: true;
+      };
+    };
   };
 }>;
 
@@ -470,7 +481,17 @@ export class ColaService implements OnApplicationBootstrap {
         where: { id: turnoId },
         include: {
           silla: true,
-          sesion: { select: { id: true, estado: true, interrumpidaEn: true } },
+          sesion: {
+            select: {
+              id: true,
+              estado: true,
+              interrumpidaEn: true,
+              duracionMin: true,
+              retornoSeg: true,
+              finProgramado: true,
+              salidaHasta: true,
+            },
+          },
         },
       }),
     );
@@ -501,8 +522,21 @@ export class ColaService implements OnApplicationBootstrap {
       segundosVentana = Math.max(0, Math.round((limite - Date.now()) / 1000));
     }
 
+    // Mismo reloj que ve quien paga directo (reloj.util): congelado durante
+    // la gracia de inicio (START + OK en el control) y con la fase de salida
+    // (START dos veces para levantar el sillón). Todo cliente pasa por eso.
     let segundosRestantesSesion: number | null = null;
-    if (turno.estado === 'EN_USO' && turno.silla?.finSesionActual) {
+    let fase: FaseReloj | null = null;
+    let segundosSalida: number | null = null;
+    const reloj =
+      turno.estado === 'EN_USO' && turno.sesion && !turno.sesion.interrumpidaEn
+        ? calcularReloj(turno.sesion)
+        : null;
+    if (reloj?.fase) {
+      segundosRestantesSesion = reloj.segundosRestantes;
+      fase = reloj.fase;
+      segundosSalida = reloj.segundosSalida;
+    } else if (turno.estado === 'EN_USO' && turno.silla?.finSesionActual) {
       segundosRestantesSesion = Math.max(
         0,
         Math.round((turno.silla.finSesionActual.getTime() - Date.now()) / 1000),
@@ -524,6 +558,8 @@ export class ColaService implements OnApplicationBootstrap {
       sillaAsignada: turno.silla ? { id: turno.silla.id, nombre: turno.silla.nombre } : null,
       segundosVentana,
       segundosRestantesSesion,
+      fase,
+      segundosSalida,
       segundosProximaSilla,
       duracionMin: turno.duracionMin,
       sesionEstado: turno.sesion?.estado ?? null,
