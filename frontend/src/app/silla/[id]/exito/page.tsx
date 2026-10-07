@@ -4,7 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { AvisoCorte } from "@/components/AvisoCorte";
 import { AvisoFaseSilla } from "@/components/AvisoFaseSilla";
-import { BarraProgreso } from "@/components/BarraProgreso";
+import { SesionEnCurso } from "@/components/SesionEnCurso";
 import { TarjetaCredito } from "@/components/TarjetaCredito";
 import { formatearTimer, useEstadoSilla } from "@/hooks/useEstadoSilla";
 import { formatearDevuelto, useEstadoSesion } from "@/hooks/useEstadoSesion";
@@ -178,27 +178,17 @@ export default function Exito({
       )}
 
       {(enCurso || (activaSinSesion && !salidaSinSesion)) && (
-        <>
-          <p className="mt-2 text-sm text-tinta-suave">
-            Tu sillón ya está encendido. Sentate y disfrutá.
-          </p>
-          <AvisoFaseSilla fase={sesion ? sesion.fase : faseSilla} />
-          <p className="mt-6 text-[44px] font-medium leading-none tabular-nums">
-            {formatearTimer(timer)}
-          </p>
-          <p className="mt-2 text-xs text-tinta-muted">de masaje por delante</p>
-          {total > 0 && (
-            <div className="mt-5 w-full">
-              <BarraProgreso restante={timer} totalSegundos={total} />
-            </div>
-          )}
-          {sesion && sesion.segundosCompensados > 0 && (
-            <p className="mt-4 text-xs text-tinta-muted">
-              Hubo {sesion.cortes === 1 ? "un corte de luz" : `${sesion.cortes} cortes de luz`}
-              : te devolvimos {formatearDevuelto(sesion.segundosCompensados)}
-            </p>
-          )}
-        </>
+        <SesionEnCurso
+          sillaNombre={sesion?.sillaNombre ?? silla?.nombre}
+          segundos={timer}
+          totalSegundos={total}
+          fase={sesion ? sesion.fase : faseSilla}
+          nota={
+            sesion && sesion.segundosCompensados > 0
+              ? `Hubo ${sesion.cortes === 1 ? "un corte de luz" : `${sesion.cortes} cortes de luz`}: te devolvimos ${formatearDevuelto(sesion.segundosCompensados)}`
+              : undefined
+          }
+        />
       )}
 
       {interrumpida && (

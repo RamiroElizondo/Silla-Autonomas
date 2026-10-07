@@ -4,7 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { AvisoCorte } from "@/components/AvisoCorte";
 import { AvisoFaseSilla } from "@/components/AvisoFaseSilla";
-import { BarraProgreso } from "@/components/BarraProgreso";
+import { SesionEnCurso } from "@/components/SesionEnCurso";
 import { TarjetaCredito } from "@/components/TarjetaCredito";
 import { confirmarTurno } from "@/lib/api";
 import { formatearTimer } from "@/hooks/useEstadoSilla";
@@ -42,6 +42,12 @@ export default function EstadoTurno({
     const sillaOrigen = sessionStorage.getItem(`sillaOrigen:${turnoId}`);
     if (sillaOrigen) setHrefReintento(`/silla/${sillaOrigen}`);
   }, [turnoId]);
+
+  // Al terminar, el link vuelve al sillón que usó (donde puede pagar otro
+  // turno); si no lo sabemos, al sillón donde entró a la cola.
+  const hrefSillon = turno?.sillaAsignada
+    ? `/silla/${turno.sillaAsignada.id}`
+    : hrefReintento;
 
   async function confirmar() {
     setConfirmando(true);
@@ -184,30 +190,26 @@ export default function EstadoTurno({
         turno.sesionEstado !== "ESPERANDO_ENERGIA" &&
         turno.fase !== "PAUSA" &&
         turno.fase !== "RETORNO" && (
-        <>
-          <p className="mt-2 text-sm text-tinta-suave">
-            {turno.sillaAsignada?.nombre ?? "Tu sillón"} está encendido. Disfrutá.
-          </p>
-          <div className="mt-6 w-full rounded-2xl border border-borde bg-marfil p-7 text-center">
-            <p className="text-[13px] text-tinta-muted">Tiempo restante</p>
-            <p className="mt-2 text-[52px] font-medium leading-none tabular-nums">
-              {formatearTimer(segundosSesion)}
-            </p>
-            <div className="mt-5">
-              <BarraProgreso
-                restante={segundosSesion}
-                totalSegundos={turno.duracionMin * 60}
-              />
-            </div>
-          </div>
-          <AvisoFaseSilla fase={turno.fase} />
-        </>
+        <SesionEnCurso
+          sillaNombre={turno.sillaAsignada?.nombre}
+          segundos={segundosSesion}
+          totalSegundos={turno.duracionMin * 60}
+          fase={turno.fase}
+        />
       )}
 
       {turno.estado === "COMPLETADA" && (
-        <p className="mt-6 text-sm text-tinta-suave">
-          Terminó tu sesión. ¡Gracias por venir!
-        </p>
+        <>
+          <p className="mt-6 text-sm text-tinta-suave">
+            Terminó tu sesión. ¡Gracias por venir!
+          </p>
+          <Link
+            href={hrefSillon}
+            className="mt-8 text-sm text-tinta-muted underline underline-offset-4"
+          >
+            Ver estado del sillón
+          </Link>
+        </>
       )}
 
       {turno.estado === "CANCELADA" && turno.credito && (
