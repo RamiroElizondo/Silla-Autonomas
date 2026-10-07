@@ -112,7 +112,9 @@ export class HeartbeatService {
         this.logger.warn(`[${silla.nombre}] ${alertas.join(' | ')}`);
       }
 
-      const ahora = new Date();
+      // La hora de la lectura, no la de ahora: con la cache o el fallback
+      // ante un rechazo el dato puede tener varios segundos (o más).
+      const ahora = dev?.leidoEn ?? new Date();
       const previo = this.salud.get(silla.id);
       this.salud.set(silla.id, {
         sillaId: silla.id,

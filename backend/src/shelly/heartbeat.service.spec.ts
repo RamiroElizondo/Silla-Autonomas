@@ -26,6 +26,7 @@ function crearDispositivo(overrides: Partial<DispositivoCloud> = {}): Dispositiv
     temperaturaC: 40,
     midePotencia: true,
     initialState: 'off',
+    leidoEn: new Date(),
     ...overrides,
   };
 }
@@ -95,7 +96,9 @@ describe('HeartbeatService — ultimoOnline', () => {
     const visto = heartbeat.getSaludDe(silla.id)!.ultimoOnline;
     expect(visto).not.toBeNull();
 
-    shelly.listarDispositivos.mockResolvedValue([{ ...dev, online: false }]);
+    shelly.listarDispositivos.mockResolvedValue([
+      { ...dev, online: false, leidoEn: new Date(Date.now() + 5) },
+    ]);
     await new Promise((r) => setTimeout(r, 5));
     await heartbeat.chequear();
 
@@ -115,5 +118,22 @@ describe('HeartbeatService — ultimoOnline', () => {
 
     await heartbeat.chequear();
     expect(heartbeat.getSaludDe(silla.id)!.ultimoOnline).toBeNull();
+  });
+});
+
+describe('HeartbeatService — hora de la lectura', () => {
+  it('ultimoChequeo es la hora en que se leyó el dato (cache), no la del chequeo', async () => {
+    const silla = crearSilla();
+    const leidoEn = new Date(Date.now() - 12_000);
+    const shelly = crearShellyMock([
+      crearDispositivo({ deviceId: silla.deviceIdShelly, leidoEn }),
+    ]);
+    const heartbeat = new HeartbeatService(crearPrismaMock([silla]), shelly);
+
+    await heartbeat.chequear();
+
+    const s = heartbeat.getSaludDe(silla.id)!;
+    expect(s.ultimoChequeo).toEqual(leidoEn);
+    expect(s.ultimoOnline).toEqual(leidoEn);
   });
 });

@@ -32,6 +32,13 @@ export interface DispositivoCloud {
   temperaturaC: number | null;
   midePotencia: boolean;
   initialState: string | null;
+  /**
+   * Cuándo se le pidió este estado a Shelly Cloud. Puede ser bastante más
+   * viejo que "ahora" si viene de la cache (15 s) o del fallback ante un
+   * rechazo: quien decida con este dato tiene que mirar esta hora, no la de
+   * la llamada.
+   */
+  leidoEn: Date;
 }
 
 /** Valor que debe tener `switch:0.initial_state` para operar sin sorpresas. */
@@ -135,6 +142,9 @@ export class ShellyService {
   // Cache del estado de las sillas registradas (solo para la consulta por
   // defecto del heartbeat; las consultas con ids explícitos van siempre en vivo).
   private static readonly CACHE_TTL_MS = 15_000;
+  /** deviceId → hora del último ON/OFF aceptado por Shelly Cloud. */
+  private ultimoComando = new Map<string, Date>();
+
   private cacheDispositivos: { datos: DispositivoCloud[]; expira: number } | null =
     null;
 
@@ -287,8 +297,10 @@ export class ShellyService {
       );
     }
 
-    // El estado cambió: la cache del heartbeat quedó vieja.
+    // El estado cambió: la cache del heartbeat quedó vieja, y toda lectura
+    // anterior a este momento describe un relé que ya no es así.
     this.cacheDispositivos = null;
+    this.ultimoComando.set(deviceId, new Date());
     this.logger.log(
       `Relé ${deviceId} → ${encender ? 'ON' : 'OFF'}` +
         (body.toggle_after ? ` (auto-off en ${body.toggle_after}s)` : ''),
@@ -333,6 +345,15 @@ export class ShellyService {
    * Solo se devuelven los dispositivos que la cuenta reconoce: un id que no
    * está en la cuenta queda fuera de la lista (así el heartbeat lo detecta).
    */
+  /**
+   * Cuándo se le mandó el último ON/OFF a este equipo (null si no se le
+   * mandó ninguno desde que arrancó el backend). Una lectura anterior a esto
+   * no sirve para saber cómo está el relé.
+   */
+  ultimoComandoEn(deviceId: string): Date | null {
+    return this.ultimoComando.get(deviceId) ?? null;
+  }
+
   async listarDispositivos(deviceIds?: string[]): Promise<DispositivoCloud[]> {
     const usaCache = deviceIds === undefined;
 
@@ -359,7 +380,8 @@ export class ShellyService {
       );
     }
 
-    const datos = crudos.map((d) => this.aDispositivoCloud(d));
+    const leidoEn = new Date();
+    const datos = crudos.map((d) => this.aDispositivoCloud(d, leidoEn));
 
     if (usaCache) {
       this.cacheDispositivos = {
@@ -425,7 +447,7 @@ export class ShellyService {
     return [];
   }
 
-  private aDispositivoCloud(dev: DispositivoV2): DispositivoCloud {
+  private aDispositivoCloud(dev: DispositivoV2, leidoEn = new Date()): DispositivoCloud {
     const estado = this.parsearDispositivo(dev);
     return {
       deviceId: dev.id,
@@ -437,6 +459,7 @@ export class ShellyService {
       temperaturaC: estado.temperaturaC,
       midePotencia: estado.potenciaW !== null,
       initialState: estado.initialState,
+      leidoEn,
     };
   }
 

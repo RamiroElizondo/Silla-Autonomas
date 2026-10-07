@@ -19,6 +19,7 @@ function crearServicio() {
   };
   const shelly: any = {
     setRele: jest.fn().mockResolvedValue(undefined),
+    ultimoComandoEn: jest.fn().mockReturnValue(null),
   };
 
   const servicio = new EnergiaService(prisma, sesiones, heartbeat, shelly);
@@ -680,5 +681,45 @@ describe('EnergiaService.revisar — pulso de retorno (fase SALIDA)', () => {
         select: { sillaId: true },
       }),
     );
+  });
+});
+
+/**
+ * Caso visto en beta (sillón 2): vuelve la luz, se reanuda (ON nuevo) y en
+ * el tick siguiente el heartbeat todavía tiene la lectura de ANTES del ON —
+ * equipo recién reconectado, relé abierto. Eso no es un corte nuevo.
+ */
+describe('EnergiaService.revisar — lectura anterior a la reanudación', () => {
+  it('relé abierto en una lectura previa al último ON: no registra otro corte', async () => {
+    const { servicio, prisma, sesiones, heartbeat, shelly } = crearServicio();
+    const inicio = new Date(Date.now() - 5 * 60_000);
+    const lectura = new Date(Date.now() - 10_000);
+    shelly.ultimoComandoEn.mockReturnValue(new Date(Date.now() - 5_000)); // ON de la reanudación
+    heartbeat.getSalud.mockReturnValue([
+      salud({ online: true, releEncendido: false, ultimoChequeo: lectura }),
+    ]);
+    prisma.sesion.findMany.mockResolvedValueOnce([
+      { ...sesionActivaBase, inicio, interrumpidaEn: null },
+    ]);
+
+    await servicio.revisar();
+
+    expect(sesiones.registrarCorte).not.toHaveBeenCalled();
+    expect(sesiones.reanudarTrasCorte).not.toHaveBeenCalled();
+  });
+
+  it('relé abierto en una lectura posterior al último ON y ya asentado: sí es un corte', async () => {
+    const { servicio, prisma, sesiones, heartbeat, shelly } = crearServicio();
+    const inicio = new Date(Date.now() - 5 * 60_000);
+    shelly.ultimoComandoEn.mockReturnValue(new Date(Date.now() - 90_000));
+    const s = salud({ online: true, releEncendido: false, ultimoChequeo: new Date() });
+    heartbeat.getSalud.mockReturnValue([s]);
+    prisma.sesion.findMany.mockResolvedValueOnce([
+      { ...sesionActivaBase, inicio, interrumpidaEn: null },
+    ]);
+
+    await servicio.revisar();
+
+    expect(sesiones.registrarCorte).toHaveBeenCalledWith('sesion-1', s.ultimoChequeo);
   });
 });

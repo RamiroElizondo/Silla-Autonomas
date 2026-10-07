@@ -185,8 +185,14 @@ export class EnergiaService {
    */
   private arranqueYaAsentado(inicio: Date | null, s: SaludSilla): boolean {
     if (!inicio) return false;
-    if (s.ultimoChequeo.getTime() <= inicio.getTime()) return false;
-    return Date.now() - inicio.getTime() > 60_000;
+    // Se mide desde el último comando al relé, no solo desde el inicio: al
+    // reanudar tras un corte se vuelve a mandar el ON, y la lectura que el
+    // heartbeat tomó antes de eso (equipo recién reconectado, relé abierto)
+    // no puede tomarse como un corte nuevo.
+    const comando = this.shelly.ultimoComandoEn(s.deviceId);
+    const desde = Math.max(inicio.getTime(), comando?.getTime() ?? 0);
+    if (s.ultimoChequeo.getTime() <= desde) return false;
+    return Date.now() - desde > 60_000;
   }
 
   /**
