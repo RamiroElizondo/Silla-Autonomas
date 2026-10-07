@@ -111,3 +111,37 @@ describe('ShellyService — reintento ante rate limit (429)', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * Un Shelly que se queda sin luz no avisa que se desconecta: la nube sigue
+ * sirviendo su última foto de estado, con `cloud.connected: true` y el relé
+ * encendido. Lo único que refleja el corte es el flag `online` del envoltorio.
+ */
+describe('ShellyService — detección de equipo sin conexión', () => {
+  const shelly = new ShellyService(
+    crearConfigMock({ SHELLY_SERVER: 'https://x', SHELLY_AUTH_KEY: 'k' }),
+    crearPrismaMock(),
+  );
+  const parsear = (dev: any) => (shelly as any).parsearDispositivo(dev);
+
+  it('online 0 con status viejo que dice cloud.connected: true → offline', () => {
+    const estado = parsear({
+      id: 'dev-1',
+      online: 0,
+      gen: 'G2',
+      status: { cloud: { connected: true }, 'switch:0': { output: true } },
+    });
+    expect(estado.online).toBe(false);
+  });
+
+  it('online 1 → online', () => {
+    const estado = parsear({
+      id: 'dev-1',
+      online: 1,
+      gen: 'G2',
+      status: { cloud: { connected: true }, 'switch:0': { output: false } },
+    });
+    expect(estado.online).toBe(true);
+    expect(estado.releEncendido).toBe(false);
+  });
+});

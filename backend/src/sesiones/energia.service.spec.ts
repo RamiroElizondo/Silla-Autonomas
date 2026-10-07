@@ -35,6 +35,7 @@ function salud(overrides: Partial<{
   temperaturaC: number | null;
   alertas: string[];
   ultimoChequeo: Date;
+  ultimoOnline: Date | null;
 }> = {}) {
   return {
     sillaId: 'silla-1',
@@ -46,6 +47,7 @@ function salud(overrides: Partial<{
     temperaturaC: 40,
     alertas: [],
     ultimoChequeo: new Date(),
+    ultimoOnline: null,
     ...overrides,
   };
 }
@@ -219,6 +221,36 @@ describe('EnergiaService.revisar — ACTIVA, cae la energía', () => {
 
     expect(sesiones.registrarCorte).toHaveBeenCalledWith('sesion-1', s.ultimoChequeo);
     expect(sesiones.cerrarPorCorte).not.toHaveBeenCalled();
+  });
+
+  it('fecha el corte en el último chequeo online, no en el que lo detecta', async () => {
+    const { servicio, prisma, sesiones, heartbeat } = crearServicio();
+    const ultimoOnline = new Date(Date.now() - 90_000);
+    const s = salud({ online: false, ultimoChequeo: new Date(), ultimoOnline });
+    heartbeat.getSalud.mockReturnValue([s]);
+    prisma.sesion.findMany.mockResolvedValueOnce([{ ...sesionActivaBase, interrumpidaEn: null }]);
+
+    await servicio.revisar();
+
+    expect(sesiones.registrarCorte).toHaveBeenCalledWith('sesion-1', ultimoOnline);
+  });
+
+  it('nunca fecha el corte antes del inicio de la sesión', async () => {
+    const { servicio, prisma, sesiones, heartbeat } = crearServicio();
+    const inicio = new Date(Date.now() - 2 * 60_000);
+    const s = salud({
+      online: false,
+      ultimoChequeo: new Date(),
+      ultimoOnline: new Date(inicio.getTime() - 20_000),
+    });
+    heartbeat.getSalud.mockReturnValue([s]);
+    prisma.sesion.findMany.mockResolvedValueOnce([
+      { ...sesionActivaBase, inicio, interrumpidaEn: null },
+    ]);
+
+    await servicio.revisar();
+
+    expect(sesiones.registrarCorte).toHaveBeenCalledWith('sesion-1', inicio);
   });
 
   it('sigue caída bajo el umbral: no hace nada más', async () => {

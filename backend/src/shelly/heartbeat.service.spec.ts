@@ -77,3 +77,43 @@ describe('HeartbeatService — alerta de relé ON con 0W', () => {
     );
   });
 });
+
+/**
+ * El corte se fecha en el último chequeo en que el equipo figuraba online:
+ * Shelly Cloud tarda en marcarlo offline y ese rato hay que devolvérselo al
+ * cliente.
+ */
+describe('HeartbeatService — ultimoOnline', () => {
+  it('se actualiza mientras está online y se conserva cuando pasa a offline', async () => {
+    const silla = crearSilla();
+    const prisma = crearPrismaMock([silla]);
+    const dev = crearDispositivo({ deviceId: silla.deviceIdShelly, online: true });
+    const shelly = { listarDispositivos: jest.fn().mockResolvedValue([dev]) } as any;
+    const heartbeat = new HeartbeatService(prisma, shelly);
+
+    await heartbeat.chequear();
+    const visto = heartbeat.getSaludDe(silla.id)!.ultimoOnline;
+    expect(visto).not.toBeNull();
+
+    shelly.listarDispositivos.mockResolvedValue([{ ...dev, online: false }]);
+    await new Promise((r) => setTimeout(r, 5));
+    await heartbeat.chequear();
+
+    const s = heartbeat.getSaludDe(silla.id)!;
+    expect(s.online).toBe(false);
+    expect(s.ultimoOnline).toEqual(visto);
+    expect(s.ultimoChequeo.getTime()).toBeGreaterThan(visto!.getTime());
+  });
+
+  it('queda en null si nunca se lo vio online', async () => {
+    const silla = crearSilla();
+    const prisma = crearPrismaMock([silla]);
+    const shelly = crearShellyMock([
+      crearDispositivo({ deviceId: silla.deviceIdShelly, online: false }),
+    ]);
+    const heartbeat = new HeartbeatService(prisma, shelly);
+
+    await heartbeat.chequear();
+    expect(heartbeat.getSaludDe(silla.id)!.ultimoOnline).toBeNull();
+  });
+});

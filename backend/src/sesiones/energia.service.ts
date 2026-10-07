@@ -143,7 +143,7 @@ export class EnergiaService {
   ): Promise<void> {
     if (!s.online) {
       if (!sesion.interrumpidaEn) {
-        await this.sesiones.registrarCorte(sesion.id, s.ultimoChequeo);
+        await this.sesiones.registrarCorte(sesion.id, this.inicioDelCorte(sesion.inicio, s));
         return;
       }
       // Sigue caído: si ya pasó el umbral no esperamos a que vuelva para
@@ -187,6 +187,19 @@ export class EnergiaService {
     if (!inicio) return false;
     if (s.ultimoChequeo.getTime() <= inicio.getTime()) return false;
     return Date.now() - inicio.getTime() > 60_000;
+  }
+
+  /**
+   * Cuándo empezó el corte, lo mejor que se puede saber. Shelly Cloud tarda
+   * en marcar offline un equipo que se quedó sin luz, así que la hora del
+   * chequeo que lo detecta llega tarde: se toma el último chequeo en que se
+   * lo vio online, para que ese rato también se le devuelva al cliente. Nunca
+   * antes del inicio de la sesión.
+   */
+  private inicioDelCorte(inicio: Date | null, s: SaludSilla): Date {
+    const visto = s.ultimoOnline ?? s.ultimoChequeo;
+    if (inicio && visto.getTime() < inicio.getTime()) return inicio;
+    return visto;
   }
 
   private caidoSeg(desde: Date): number {

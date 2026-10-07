@@ -468,10 +468,12 @@ export class ShellyService {
     ds: any,
     online: boolean,
   ): Omit<EstadoDispositivo, 'modelo' | 'generacion' | 'initialState'> {
-    // El flag online del envoltorio puede venir desactualizado; el status del
-    // propio dispositivo trae "cloud.connected", que refleja la conexión real.
-    const conectado =
-      online || ds?.cloud?.connected === true || ds?.cloud?.connected === 1;
+    // Solo vale el flag `online` del envoltorio, que lo calcula Shelly Cloud.
+    // `status.cloud.connected` NO sirve para esto: es la última foto que mandó
+    // el propio equipo, y un equipo que se queda sin luz no llega a reportar
+    // que se desconecta — la nube sigue sirviendo `connected: true` para
+    // siempre. Usarlo hacía que un corte de luz nunca se detectara.
+    const conectado = online;
 
     // Gen2/Gen3 (Plus 1, 1 Gen3, 1PM, ...): componente "switch:0".
     // Los modelos sin medición (Plus 1, 1 Gen3) no traen `apower` en absoluto,

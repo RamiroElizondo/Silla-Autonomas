@@ -13,6 +13,13 @@ export interface SaludSilla {
   temperaturaC: number | null;
   alertas: string[];
   ultimoChequeo: Date;
+  /**
+   * Último chequeo en el que el equipo figuraba online (null si todavía no
+   * se lo vio online desde que arrancó el backend). Cuando se corta la luz,
+   * Shelly Cloud tarda en marcarlo offline: esta es la mejor estimación de
+   * cuándo empezó el corte, y es la que se usa para compensar al cliente.
+   */
+  ultimoOnline: Date | null;
 }
 
 /**
@@ -105,6 +112,8 @@ export class HeartbeatService {
         this.logger.warn(`[${silla.nombre}] ${alertas.join(' | ')}`);
       }
 
+      const ahora = new Date();
+      const previo = this.salud.get(silla.id);
       this.salud.set(silla.id, {
         sillaId: silla.id,
         nombre: silla.nombre,
@@ -114,7 +123,8 @@ export class HeartbeatService {
         potenciaW: estado.potenciaW,
         temperaturaC: estado.temperaturaC,
         alertas,
-        ultimoChequeo: new Date(),
+        ultimoChequeo: ahora,
+        ultimoOnline: estado.online ? ahora : (previo?.ultimoOnline ?? null),
       });
     }
   }
