@@ -3,6 +3,7 @@
 import { use, useEffect } from "react";
 import Link from "next/link";
 import { cancelarPago } from "@/lib/api";
+import { olvidarSesionActiva } from "@/lib/sesionActiva";
 
 export default function Fracaso({
   params,
@@ -23,6 +24,7 @@ export default function Fracaso({
       sessionStorage.getItem(key);
     if (sesionId) {
       cancelarPago(id, sesionId).catch(() => {});
+      olvidarSesionActiva(sesionId);
     }
     sessionStorage.removeItem(key);
   }, [id]);

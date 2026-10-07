@@ -9,6 +9,7 @@ import { TurnstileWidget } from "@/components/TurnstileWidget";
 import { formatearTimer, useEstadoSilla } from "@/hooks/useEstadoSilla";
 import { iniciarCheckout, obtenerResumenCola, unirseCola } from "@/lib/api";
 import { debeSondearAhora } from "@/lib/polling";
+import { recordarSesionActiva, rutaSesionActiva } from "@/lib/sesionActiva";
 import type { ColaResumen } from "@/lib/tipos";
 
 const TURNSTILE_REQUERIDO = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
@@ -33,13 +34,22 @@ export default function LandingSilla({
   // te mandamos directo ahí en vez de mostrar esta vista genérica — pasa
   // seguido que la gente vuelve a escanear el QR de cualquier silla para
   // "ver cómo va" en vez de guardar el link de su turno.
+  // Lo mismo con un pago directo: si tiene una sesión andando, va a su vista.
   useEffect(() => {
+    let vigente = true;
     const turnoPendiente = sessionStorage.getItem("turnoPendiente");
     if (turnoPendiente) {
       router.replace(`/cola/${turnoPendiente}`);
       return;
     }
-    setChequeandoTurno(false);
+    rutaSesionActiva().then((ruta) => {
+      if (!vigente) return;
+      if (ruta) router.replace(ruta);
+      else setChequeandoTurno(false);
+    });
+    return () => {
+      vigente = false;
+    };
   }, [router]);
 
   const ocupada = estado && estado.estado !== "LIBRE" && estado.estado !== "FUERA_DE_SERVICIO";
@@ -93,6 +103,7 @@ export default function LandingSilla({
       // el cliente cancela, y para que /exito pueda seguir ESTA sesión
       // (cortes de luz, vales) y no el estado general de la silla.
       sessionStorage.setItem(`sesionPendiente:${id}`, sesionId);
+      recordarSesionActiva(id, sesionId);
       window.location.href = initPoint;
     } catch (e) {
       setErrorPago(e instanceof Error ? e.message : "No se pudo iniciar el pago");

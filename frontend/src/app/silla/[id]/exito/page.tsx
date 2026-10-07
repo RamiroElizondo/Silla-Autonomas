@@ -9,6 +9,7 @@ import { TarjetaCredito } from "@/components/TarjetaCredito";
 import { formatearTimer, useEstadoSilla } from "@/hooks/useEstadoSilla";
 import { formatearDevuelto, useEstadoSesion } from "@/hooks/useEstadoSesion";
 import { confirmarPagoRetorno, confirmarSesion } from "@/lib/api";
+import { olvidarSesionActiva, recordarSesionActiva } from "@/lib/sesionActiva";
 
 export default function Exito({
   params,
@@ -23,10 +24,13 @@ export default function Exito({
   // Pago. Es lo que nos deja seguir ESTA sesión y no el estado general de la
   // silla — que después de un corte puede estar libre para otra persona.
   useEffect(() => {
-    setSesionId(
+    const sid =
       new URLSearchParams(window.location.search).get("sesion") ??
-        sessionStorage.getItem(`sesionPendiente:${id}`),
-    );
+      sessionStorage.getItem(`sesionPendiente:${id}`);
+    setSesionId(sid);
+    // Mercado Pago puede devolvernos en otra pestaña: la guardamos acá
+    // también, así si vuelve a la landing lo traemos de nuevo a esta vista.
+    if (sid) recordarSesionActiva(id, sid);
   }, [id]);
 
   const { sesion, segundos, segundosVentana, segundosSalida, refrescar } = useEstadoSesion(
@@ -47,6 +51,10 @@ export default function Exito({
     const query = new URLSearchParams(window.location.search);
     const paymentId = query.get("payment_id") ?? query.get("collection_id");
     if (!paymentId) {
+      // Sin payment_id pero con la sesión: llegó redirigido desde la landing
+      // (volvió atrás o reescaneó el QR), no desde Mercado Pago. No hay nada
+      // que confirmar, solo seguir la sesión.
+      if (query.get("sesion")) return;
       setErrorConfirmacion("Mercado Pago no devolvió el identificador del pago.");
       return;
     }
@@ -68,8 +76,9 @@ export default function Exito({
   useEffect(() => {
     if (sesion?.estado === "COMPLETADA" || sesion?.estado === "CANCELADA") {
       sessionStorage.removeItem(`sesionPendiente:${id}`);
+      olvidarSesionActiva(sesion.id);
     }
-  }, [sesion?.estado, id]);
+  }, [sesion?.estado, sesion?.id, id]);
 
   async function confirmar() {
     if (!sesionId) return;
@@ -113,6 +122,18 @@ export default function Exito({
     if (errorConfirmacion) return "No pudimos confirmar el pago";
     return "Confirmando tu pago…";
   })();
+
+  // Mientras está usando el sillón no le ofrecemos irse: que disfrute. El
+  // link aparece cuando terminó, se canceló o algo falló.
+  const enTurno =
+    esperandoConfirmacion ||
+    enCurso ||
+    interrumpida ||
+    esperandoEnergia ||
+    enSalida ||
+    activaSinSesion;
+  const cargandoSesion = Boolean(sesionId) && !sesion && !errorConfirmacion;
+  const mostrarVolver = !enTurno && !cargandoSesion;
 
   const timer = sesion ? segundos : segundosSilla;
   const total = (sesion?.duracionMin ?? silla?.duracionMin ?? 0) * 60;
@@ -263,12 +284,14 @@ export default function Exito({
         </p>
       )}
 
-      <Link
-        href={`/silla/${id}`}
-        className="mt-8 text-sm text-tinta-muted underline underline-offset-4"
-      >
-        Ver estado del sillón
-      </Link>
+      {mostrarVolver && (
+        <Link
+          href={`/silla/${id}`}
+          className="mt-8 text-sm text-tinta-muted underline underline-offset-4"
+        >
+          Ver estado del sillón
+        </Link>
+      )}
     </main>
   );
 }
