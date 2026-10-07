@@ -133,6 +133,25 @@ describe('SillasService.estadoPublico — gracia de inicio y fase SALIDA', () =>
     expect(r.fase).toBe('GRACIA');
   });
 
+  it('en PAUSA, quien espera ve pausa + retorno juntos (sin salto al pasar a RETORNO)', async () => {
+    const { servicio } = crearServicio({
+      silla: enUso,
+      sesion: {
+        estado: 'SALIDA',
+        duracionMin: 10,
+        retornoSeg: 40,
+        finProgramado: new Date(),
+        salidaHasta: new Date(Date.now() + 50_000),
+      },
+    });
+
+    const r = await servicio.estadoPublico('silla-1');
+
+    expect(r.fase).toBe('PAUSA');
+    expect(r.segundosSalida).toBe(10);
+    expect(r.segundosParaLiberar).toBe(50);
+  });
+
   it('en SALIDA informa la fase y los segundos que faltan', async () => {
     const { servicio } = crearServicio({
       silla: enUso,
@@ -150,5 +169,7 @@ describe('SillasService.estadoPublico — gracia de inicio y fase SALIDA', () =>
     expect(r.estado).toBe('EN_USO');
     expect(r.fase).toBe('RETORNO');
     expect(r.segundosSalida).toBe(30);
+    // Para quien espera: pausa + retorno en un solo número.
+    expect(r.segundosParaLiberar).toBe(30);
   });
 });

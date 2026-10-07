@@ -30,6 +30,8 @@ export interface EstadoPublico {
   fase?: FaseTurno | null;
   /** En PAUSA/RETORNO: segundos hasta que termine esa sub-fase. */
   segundosSalida?: number | null;
+  /** En PAUSA/RETORNO: segundos hasta que el sillón quede libre (las dos juntas). */
+  segundosParaLiberar?: number | null;
   /** El Shelly no responde: casi siempre corte de luz en el local. */
   sinEnergia: boolean;
 }

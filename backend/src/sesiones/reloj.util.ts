@@ -31,6 +31,12 @@ export interface Reloj {
   fase: FaseReloj | null;
   /** En SALIDA: segundos hasta que termine la sub-fase actual. */
   segundosSalida: number | null;
+  /**
+   * En SALIDA: segundos hasta que el sillón quede libre (pausa + retorno).
+   * Es lo que ve quien espera: un solo número que baja, sin el salto de la
+   * pausa al retorno que tiene `segundosSalida`.
+   */
+  segundosParaLiberar: number | null;
 }
 
 export function calcularReloj(s: DatosReloj, ahora: number = Date.now()): Reloj {
@@ -41,6 +47,7 @@ export function calcularReloj(s: DatosReloj, ahora: number = Date.now()): Reloj 
       segundosRestantes: Math.min(real, contratado),
       fase: real > contratado ? 'GRACIA' : 'MASAJE',
       segundosSalida: null,
+      segundosParaLiberar: null,
     };
   }
   if (s.estado === 'SALIDA' && s.salidaHasta) {
@@ -50,7 +57,13 @@ export function calcularReloj(s: DatosReloj, ahora: number = Date.now()): Reloj 
       segundosRestantes: 0,
       fase: enPausa ? 'PAUSA' : 'RETORNO',
       segundosSalida: enPausa ? resto - s.retornoSeg : resto,
+      segundosParaLiberar: resto,
     };
   }
-  return { segundosRestantes: null, fase: null, segundosSalida: null };
+  return {
+    segundosRestantes: null,
+    fase: null,
+    segundosSalida: null,
+    segundosParaLiberar: null,
+  };
 }

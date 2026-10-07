@@ -63,6 +63,7 @@ export class SillasService {
     let segundosRestantes: number | null = null;
     let fase: string | null = null;
     let segundosSalida: number | null = null;
+    let segundosParaLiberar: number | null = null;
     if (silla.estado === 'EN_USO') {
       const sesion = await this.cacheSesion.obtenerOCargar(id, () =>
         this.prisma.sesion.findFirst({
@@ -81,6 +82,7 @@ export class SillasService {
         segundosRestantes = reloj.segundosRestantes;
         fase = reloj.fase;
         segundosSalida = reloj.segundosSalida;
+        segundosParaLiberar = reloj.segundosParaLiberar;
       } else if (silla.finSesionActual) {
         segundosRestantes = Math.max(
           0,
@@ -99,6 +101,8 @@ export class SillasService {
       // GRACIA (esperando START, reloj congelado) | MASAJE | PAUSA | RETORNO
       fase,
       segundosSalida,
+      // Pausa + retorno juntos: lo que se le muestra a quien espera el sillón.
+      segundosParaLiberar,
       // El relé no contesta: casi siempre es corte de luz en el local. La
       // landing esconde el botón de pagar — no cobramos lo que no podemos
       // entregar.

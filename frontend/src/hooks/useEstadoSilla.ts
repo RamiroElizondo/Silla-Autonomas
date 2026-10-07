@@ -31,6 +31,7 @@ export function useEstadoSilla(
   const [error, setError] = useState<string | null>(null);
   const [segundos, setSegundos] = useState<number | null>(null);
   const [segundosSalida, setSegundosSalida] = useState<number | null>(null);
+  const [segundosParaLiberar, setSegundosParaLiberar] = useState<number | null>(null);
 
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activoRef = useRef(true);
@@ -42,6 +43,7 @@ export function useEstadoSilla(
       setEstado(data);
       setSegundos(data.segundosRestantes);
       setSegundosSalida(data.segundosSalida ?? null);
+      setSegundosParaLiberar(data.segundosParaLiberar ?? null);
       setError(null);
       return proximoRetrasoMs({ intervaloBaseMs: intervaloMs, retryAfterMs: null });
     } catch (e) {
@@ -110,6 +112,8 @@ export function useEstadoSilla(
 
   const salidaRef = useRef(segundosSalida);
   salidaRef.current = segundosSalida;
+  const liberarRef = useRef(segundosParaLiberar);
+  liberarRef.current = segundosParaLiberar;
   const enSalida = fase === "PAUSA" || fase === "RETORNO";
   useEffect(() => {
     if (!enSalida) return;
@@ -117,11 +121,22 @@ export function useEstadoSilla(
       if (salidaRef.current !== null && salidaRef.current > 0) {
         setSegundosSalida(salidaRef.current - 1);
       }
+      if (liberarRef.current !== null && liberarRef.current > 0) {
+        setSegundosParaLiberar(liberarRef.current - 1);
+      }
     }, 1000);
     return () => clearInterval(id);
   }, [enSalida, fase]);
 
-  return { estado, segundos, segundosSalida, fase, error, refrescar: sondear };
+  return {
+    estado,
+    segundos,
+    segundosSalida,
+    segundosParaLiberar,
+    fase,
+    error,
+    refrescar: sondear,
+  };
 }
 
 export function formatearTimer(segundos: number | null): string {
