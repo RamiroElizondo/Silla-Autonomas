@@ -229,6 +229,17 @@ describe('ColaService.canjearCredito — freno de fuerza bruta (Hallazgo ALTO 3)
     expect(resultado.turnoId).toBe('turno-1');
   });
 
+  it('con el local sin luz: rechaza sin tocar el vale (no se pierde)', async () => {
+    const { servicio, creditos, prisma } = crearServicio({ heartbeatOffline: () => true });
+
+    await expect(
+      servicio.canjearCredito('LUZ-AAAA-BBBB', '1.2.3.4'),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(creditos.tomar).not.toHaveBeenCalled();
+    expect(prisma.turno.create).not.toHaveBeenCalled();
+  });
+
   it('si falla la creación del turno tras tomar el vale, lo revierte a DISPONIBLE y propaga el error', async () => {
     const { servicio, prisma, creditos } = crearServicio();
     prisma.turno.create = jest.fn().mockRejectedValue(new Error('db caída'));
@@ -830,7 +841,10 @@ describe('ColaService.estadoTurno — cálculos en vivo según el estado', () =>
       asignadoEn: null, duracionMin: 10, motivoCierre: null, sesionId: null, silla: null, sesion: null,
     });
     prisma.turno.count = jest.fn().mockResolvedValue(0);
-    prisma.silla.count = jest.fn().mockResolvedValue(0);
+    // Ninguna LIBRE; en servicio sigue habiendo una (con luz).
+    prisma.silla.findMany = jest.fn((args: any) =>
+      Promise.resolve(args?.where?.estado === 'LIBRE' ? [] : [{ id: 'silla-1' }]),
+    );
     prisma.silla.findFirst = jest
       .fn()
       .mockResolvedValue({ finSesionActual: new Date(Date.now() + 90_000) });
@@ -839,6 +853,21 @@ describe('ColaService.estadoTurno — cálculos en vivo según el estado', () =>
 
     expect(estado.segundosProximaSilla).toBeGreaterThan(80);
     expect(estado.segundosProximaSilla).toBeLessThanOrEqual(90);
+  });
+
+  it('turno EN_COLA con el local sin luz: no cuenta sillones sin energía y avisa sinEnergia', async () => {
+    const { servicio, prisma } = crearServicio({ heartbeatOffline: () => true });
+    prisma.turno.findUnique = jest.fn().mockResolvedValue({
+      id: 'turno-1', codigo: 'ABC-1234', estado: 'EN_COLA', pagadoEn: new Date(),
+      asignadoEn: null, duracionMin: 10, motivoCierre: null, sesionId: null, silla: null, sesion: null,
+    });
+    prisma.turno.count = jest.fn().mockResolvedValue(0);
+    prisma.silla.findFirst = jest.fn().mockResolvedValue(null);
+
+    const estado = await servicio.estadoTurno('turno-1');
+
+    expect(estado.sillasLibres).toBe(0);
+    expect(estado.sinEnergia).toBe(true);
   });
 
   it('turno EN_COLA con pagadoEn: calcula posición en la fila y sillas libres', async () => {

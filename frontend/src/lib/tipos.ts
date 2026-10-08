@@ -280,6 +280,8 @@ export interface EstadoTurnoPublico {
   posicion: number | null;
   sillasLibres: number | null;
   sillaAsignada: { id: string; nombre: string } | null;
+  /** EN_COLA con todos los sillones sin luz: el turno espera, no se pierde. */
+  sinEnergia?: boolean;
   segundosVentana: number | null;
   segundosRestantesSesion: number | null;
   /** Fase del sillón asignado (gracia de inicio, masaje, pausa o retorno). */

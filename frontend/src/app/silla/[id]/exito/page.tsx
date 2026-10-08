@@ -114,7 +114,8 @@ export default function Exito({
     if (esperandoConfirmacion) return "¡Pago confirmado!";
     if (esperandoEnergia) return "Pago confirmado";
     if (interrumpida) return "Tu masaje está en pausa";
-    if (sesion?.credito) return "Te debemos un turno";
+    // Con vale no hay título: la tarjeta del vale ya lo dice todo.
+    if (sesion?.credito) return null;
     if (sesion?.estado === "COMPLETADA" || enSalida || salidaSinSesion) return "Terminó tu masaje";
     if (detenidaPorEncargado) return "Se detuvo tu masaje";
     if (cancelada) return "Se canceló tu sesión";
@@ -162,7 +163,7 @@ export default function Exito({
           </svg>
         )}
       </div>
-      <h1 className="mt-5 text-2xl font-medium">{titulo}</h1>
+      {titulo && <h1 className="mt-5 text-2xl font-medium">{titulo}</h1>}
 
       {esperandoConfirmacion && (
         <>
@@ -243,11 +244,7 @@ export default function Exito({
               ? "No pudimos encender el sillón"
               : "Se cortó la luz"
           }
-          detalle={
-            sesion.motivoCierre === "sin_energia_al_pagar"
-              ? `El local se quedó sin energía y no llegamos a prenderlo. Tu pago no se pierde: te queda un vale por ${sesion.credito.duracionMin} minutos.`
-              : `El corte duró demasiado como para dejarte el sillón encendido. Te queda un vale por los ${sesion.credito.duracionMin} minutos que te faltaban.`
-          }
+          detalle={`No perdés tu turno. Te queda un vale por ${sesion.credito.duracionMin} minutos.`}
         />
       )}
 

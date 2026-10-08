@@ -94,7 +94,21 @@ export default function EstadoTurno({
         </p>
       )}
 
-      {turno.estado === "EN_COLA" && (
+      {turno.estado === "EN_COLA" && turno.sinEnergia && (
+        <>
+          <div className="mt-6 w-full rounded-2xl border border-arena bg-panal p-6">
+            <p className="text-[15px] font-medium">El local está sin luz</p>
+            <p className="mt-2 text-sm text-tinta-suave">
+              Tu turno no se pierde: apenas vuelva la energía te asignamos un sillón.
+            </p>
+          </div>
+          <p className="mt-4 text-sm text-tinta-suave">
+            Dejá esta pantalla abierta — te avisamos acá apenas te toque.
+          </p>
+        </>
+      )}
+
+      {turno.estado === "EN_COLA" && !turno.sinEnergia && (
         <>
           {turno.posicion === 0 ? (
             <div className="mt-6 w-full rounded-2xl border border-borde bg-marfil p-6">
@@ -213,11 +227,19 @@ export default function EstadoTurno({
       )}
 
       {turno.estado === "CANCELADA" && turno.credito && (
-        <TarjetaCredito
-          credito={turno.credito}
-          titulo="Se cortó la luz"
-          detalle={`No perdés tu turno: te queda un vale por ${turno.credito.duracionMin} minutos.`}
-        />
+        <>
+          <TarjetaCredito
+            credito={turno.credito}
+            titulo="Se cortó la luz"
+            detalle={`No perdés tu turno. Te queda un vale por ${turno.credito.duracionMin} minutos.`}
+          />
+          <Link
+            href={hrefSillon}
+            className="mt-8 text-sm text-tinta-muted underline underline-offset-4"
+          >
+            Ver estado del sillón
+          </Link>
+        </>
       )}
 
       {turno.estado === "CANCELADA" && !turno.credito && (

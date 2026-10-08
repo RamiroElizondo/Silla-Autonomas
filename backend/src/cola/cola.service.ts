@@ -499,13 +499,19 @@ export class ColaService implements OnApplicationBootstrap {
 
     let posicion: number | null = null;
     let sillasLibres: number | null = null;
+    let sinEnergia = false;
     if (turno.estado === 'EN_COLA' && turno.pagadoEn) {
-      [posicion, sillasLibres] = await Promise.all([
+      let libres: { id: string }[];
+      [posicion, libres, sinEnergia] = await Promise.all([
         this.prisma.turno.count({
           where: { estado: 'EN_COLA', pagadoEn: { lt: turno.pagadoEn } },
         }),
-        this.prisma.silla.count({ where: { estado: 'LIBRE' } }),
+        this.prisma.silla.findMany({ where: { estado: 'LIBRE' }, select: { id: true } }),
+        this.localSinEnergia(),
       ]);
+      // Un sillón libre sin luz no se puede asignar: contarlo hacía que la
+      // pantalla dijera "te lo estamos asignando" para siempre.
+      sillasLibres = libres.filter((s) => !this.heartbeat.estaOffline(s.id)).length;
     }
 
     // Para quien espera: cuánto falta para que termine la sesión en curso
@@ -555,6 +561,8 @@ export class ColaService implements OnApplicationBootstrap {
       estado: turno.estado,
       posicion,
       sillasLibres,
+      // Todos los sillones sin luz: el turno espera, no se pierde.
+      sinEnergia,
       sillaAsignada: turno.silla ? { id: turno.silla.id, nombre: turno.silla.nombre } : null,
       segundosVentana,
       segundosRestantesSesion,
@@ -589,6 +597,16 @@ export class ColaService implements OnApplicationBootstrap {
    */
   async canjearCredito(codigoIngresado: string, ipCliente: string) {
     this.fallosCanje.verificarNoBloqueado(ipCliente);
+
+    // Con el local sin luz no se toca el vale: si lo canjeáramos, el turno
+    // quedaría esperando un sillón que no puede encender. Se rechaza ANTES de
+    // validar el código, así que la respuesta no dice nada de si es válido.
+    if (await this.localSinEnergia()) {
+      throw new ConflictException(
+        'El local está sin luz en este momento. Tu vale sigue guardado: ' +
+          'canjealo apenas vuelva la energía.',
+      );
+    }
 
     let credito;
     try {
@@ -629,6 +647,19 @@ export class ColaService implements OnApplicationBootstrap {
     );
     await this.intentarAsignar();
     return { turnoId: turno.id, codigo, duracionMin: turno.duracionMin };
+  }
+
+  /**
+   * True si TODOS los sillones en servicio están sin conexión (lectura
+   * fresca del heartbeat). Sin datos, `estaOffline` da false: ante la duda no
+   * se bloquea nada.
+   */
+  private async localSinEnergia(): Promise<boolean> {
+    const sillas = await this.prisma.silla.findMany({
+      where: { estado: { not: 'FUERA_DE_SERVICIO' } },
+      select: { id: true },
+    });
+    return sillas.length > 0 && sillas.every((s) => this.heartbeat.estaOffline(s.id));
   }
 
   // ── Timers ────────────────────────────────────────────────────
