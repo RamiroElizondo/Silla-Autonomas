@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { crearSilla, actualizarSilla, verificarDispositivo } from "@/lib/api";
 import type { SillaAdmin, VerificacionDispositivo } from "@/lib/tipos";
 
@@ -51,6 +51,18 @@ export function FormSilla({
   const [errorVerificacion, setErrorVerificacion] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [guardando, setGuardando] = useState(false);
+
+  // Al abrirse (alta o "Editar" desde la lista, que puede estar bastante más
+  // abajo) se lleva el formulario a la vista con un scroll suave. Con
+  // "reducir movimiento" activado en el sistema, salta sin animación.
+  const formRef = useRef<HTMLFormElement>(null);
+  useEffect(() => {
+    const reducir = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    formRef.current?.scrollIntoView({
+      behavior: reducir ? "auto" : "smooth",
+      block: "start",
+    });
+  }, []);
 
   async function verificar() {
     const id = deviceId.trim();
@@ -104,8 +116,9 @@ export function FormSilla({
 
   return (
     <form
+      ref={formRef}
       onSubmit={guardar}
-      className="rounded-xl border border-borde bg-marfil p-4 sm:p-5"
+      className="scroll-mt-4 rounded-xl border border-borde bg-marfil p-4 sm:p-5"
     >
       <p className="text-[15px] font-medium">
         {silla ? `Editar ${silla.nombre}` : "Nuevo sillón"}

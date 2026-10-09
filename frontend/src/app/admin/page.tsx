@@ -334,6 +334,9 @@ function Dashboard({
       <section className="mt-2.5 flex flex-col gap-2.5">
         {form !== null && (
           <FormSilla
+            // La key remonta el formulario al pasar de un sillón a otro: así
+            // se cargan los datos del nuevo y vuelve a hacer el scroll.
+            key={form === "nueva" ? "nueva" : form.id}
             silla={form === "nueva" ? undefined : form}
             onListo={() => {
               setForm(null);
