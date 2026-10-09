@@ -5,7 +5,7 @@
  * los .css del paquete, que Next empaqueta como propios) — no hace falta
  * permitir fonts.googleapis.com, todo sale de 'self'.
  *
- * `style-src` necesita 'unsafe-inline' porque `/silla/[id]/pantalla` usa un
+ * `style-src` necesita 'unsafe-inline' porque `/pantalla` (TV) usa un
  * `style={{ width }}` inline para la barra de progreso (React lo vuelca como
  * atributo `style` en el DOM). Es la única razón; si en algún momento se
  * saca ese inline style (variable CSS + clase), se puede sacar también de acá.

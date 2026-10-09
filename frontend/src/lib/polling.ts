@@ -8,7 +8,7 @@
 
 /**
  * Si la pestaña está oculta y el llamador pidió pausar en ese caso, no hay
- * que sondear. La pantalla TV (`pantalla/page.tsx`) pasa `pausarEnOculto:
+ * que sondear. La pantalla TV (`app/pantalla/page.tsx`) pasa `pausarEnOculto:
  * false` porque es un display de pared: nadie cambia de pestaña ahí, y aun
  * si `visibilitychange` disparara por algún motivo, tiene que seguir
  * sondeando igual.

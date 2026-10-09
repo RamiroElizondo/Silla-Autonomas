@@ -10,7 +10,7 @@ import "./globals.css";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Sillones de masaje",
+  title: "Relajá · Sillones de masaje",
   description: "Pagá desde tu celular y disfrutá tu masaje",
 };
 

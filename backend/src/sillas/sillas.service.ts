@@ -57,6 +57,19 @@ export class SillasService {
     this.cacheSesion.invalidar(id);
   }
 
+  /**
+   * Estado público de todos los sillones, ordenados por nombre (así cada uno
+   * cae siempre en la misma mitad de la pantalla TV). Incluye los que están
+   * FUERA_DE_SERVICIO: la pantalla los muestra como tales.
+   */
+  async estadosPublicos() {
+    const sillas = await this.prisma.silla.findMany({
+      select: { id: true },
+      orderBy: [{ nombre: 'asc' }, { creadaEn: 'asc' }],
+    });
+    return Promise.all(sillas.map((s) => this.estadoPublico(s.id)));
+  }
+
   /** Estado público para la landing y la pantalla TV. */
   async estadoPublico(id: string) {
     const silla = await this.obtener(id);

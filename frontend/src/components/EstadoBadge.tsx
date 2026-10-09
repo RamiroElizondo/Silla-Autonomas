@@ -49,17 +49,23 @@ export function EstadoBadge({
   estado,
   sufijo,
   sinEnergia = false,
+  grande = false,
 }: {
   estado: EstadoSilla;
   sufijo?: string;
   sinEnergia?: boolean;
+  /** Versión para la pantalla TV, escalada con la altura de la pantalla. */
+  grande?: boolean;
 }) {
   const c = sinEnergia && estado !== "FUERA_DE_SERVICIO" ? SIN_ENERGIA : config[estado];
+  const tamano = grande
+    ? "gap-[1vh] px-[1.8vh] py-[0.7vh] text-[2.4vh]"
+    : "gap-2 px-3.5 py-1.5 text-[13px]";
   return (
     <span
-      className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-[13px] font-medium ${c.fondo} ${c.texto_color}`}
+      className={`inline-flex items-center rounded-full font-medium ${tamano} ${c.fondo} ${c.texto_color}`}
     >
-      <span className={`h-2 w-2 rounded-full ${c.punto}`} />
+      <span className={`rounded-full ${grande ? "h-[1.2vh] w-[1.2vh]" : "h-2 w-2"} ${c.punto}`} />
       {c.texto}
       {sufijo && <span className="tabular-nums">· {sufijo}</span>}
     </span>

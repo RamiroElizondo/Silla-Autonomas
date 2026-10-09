@@ -221,3 +221,29 @@ describe('SillasService.estadoPublico — opciones de masaje', () => {
     expect(r.segundosRestantes).toBe(200);
   });
 });
+
+describe('SillasService.estadosPublicos — pantalla TV única', () => {
+  it('devuelve el estado de cada sillón en el orden de la base (por nombre)', async () => {
+    const { servicio, prisma, findUnique } = crearServicio();
+    prisma.silla.findMany = jest.fn().mockResolvedValue([{ id: 'silla-a' }, { id: 'silla-b' }]);
+    findUnique.mockImplementation(({ where }: any) =>
+      Promise.resolve({
+        id: where.id,
+        nombre: where.id,
+        estado: 'LIBRE',
+        opcion1DuracionMin: 5,
+        opcion1Precio: 500,
+        opcion2DuracionMin: 10,
+        opcion2Precio: 1000,
+        finSesionActual: null,
+      }),
+    );
+
+    const r = await servicio.estadosPublicos();
+
+    expect(r.map((e) => e.id)).toEqual(['silla-a', 'silla-b']);
+    expect(prisma.silla.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: [{ nombre: 'asc' }, { creadaEn: 'asc' }] }),
+    );
+  });
+});

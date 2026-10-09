@@ -100,6 +100,11 @@ export function obtenerEstado(sillaId: string) {
   return request<EstadoPublico>(`/sillas/${sillaId}/estado`);
 }
 
+/** Todos los sillones del local, ordenados por nombre (pantalla TV única). */
+export function obtenerEstadoSillas() {
+  return request<EstadoPublico[]>(`/sillas/estado`);
+}
+
 /**
  * Estado de la sesión propia del cliente. El estado de la silla no alcanza:
  * si un corte corta la sesión, la silla vuelve a estar libre para otro y esta
