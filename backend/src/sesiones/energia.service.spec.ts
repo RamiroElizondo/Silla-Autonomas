@@ -1,7 +1,7 @@
 import { EnergiaService } from './energia.service';
 import { UMBRAL_CORTE_SEG, MAX_ESPERA_ENERGIA_SEG } from './sesiones.service';
 
-function crearServicio() {
+function crearServicio(env: Record<string, string> = {}) {
   const prisma: any = {
     sesion: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -22,7 +22,8 @@ function crearServicio() {
     ultimoComandoEn: jest.fn().mockReturnValue(null),
   };
 
-  const servicio = new EnergiaService(prisma, sesiones, heartbeat, shelly);
+  const config: any = { get: (k: string, def?: string) => env[k] ?? def };
+  const servicio = new EnergiaService(prisma, sesiones, heartbeat, shelly, config);
   return { servicio, prisma, sesiones, heartbeat, shelly };
 }
 
@@ -721,5 +722,42 @@ describe('EnergiaService.revisar — lectura anterior a la reanudación', () => 
     await servicio.revisar();
 
     expect(sesiones.registrarCorte).toHaveBeenCalledWith('sesion-1', s.ultimoChequeo);
+  });
+});
+
+describe('EnergiaService.revisar — relés huérfanos', () => {
+  afterEach(() => jest.useRealTimers());
+
+  async function dosPasadas(env: Record<string, string> = {}) {
+    jest.useFakeTimers({ now: new Date('2026-10-08T21:00:00Z') });
+    const ctx = crearServicio(env);
+    ctx.heartbeat.getSalud.mockImplementation(() => [salud({ ultimoChequeo: new Date() })]);
+    await ctx.servicio.revisar();
+    jest.setSystemTime(Date.now() + 61_000);
+    await ctx.servicio.revisar();
+    return ctx;
+  }
+
+  it('por defecto apaga un relé encendido sin sesión tras confirmarlo 60 s', async () => {
+    const { shelly } = await dosPasadas();
+    expect(shelly.setRele).toHaveBeenCalledWith('dev-1', false);
+  });
+
+  it('con APAGAR_RELES_HUERFANOS=false no lo apaga (otro ambiente maneja el equipo)', async () => {
+    const { shelly } = await dosPasadas({ APAGAR_RELES_HUERFANOS: 'false' });
+    expect(shelly.setRele).not.toHaveBeenCalled();
+  });
+
+  it('con una sesión ACTIVA en la silla no lo toca', async () => {
+    jest.useFakeTimers({ now: new Date('2026-10-08T21:00:00Z') });
+    const ctx = crearServicio();
+    ctx.prisma.sesion.findMany.mockImplementation((args: any) =>
+      Promise.resolve(args?.select ? [{ sillaId: 'silla-1' }] : []),
+    );
+    ctx.heartbeat.getSalud.mockImplementation(() => [salud({ ultimoChequeo: new Date() })]);
+    await ctx.servicio.revisar();
+    jest.setSystemTime(Date.now() + 61_000);
+    await ctx.servicio.revisar();
+    expect(ctx.shelly.setRele).not.toHaveBeenCalled();
   });
 });

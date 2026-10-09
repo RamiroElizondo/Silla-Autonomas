@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Interval } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService, SaludSilla } from '../shelly/heartbeat.service';
@@ -47,13 +48,31 @@ export class EnergiaService {
    * dos veces.
    */
   private corriendo = false;
+  /**
+   * Apagar relés huérfanos solo es seguro si esta instancia es la ÚNICA que
+   * maneja esos equipos. Si otro backend (beta, o uno local en desarrollo)
+   * tiene cargada una silla con el mismo `deviceIdShelly`, para él toda
+   * sesión de producción es un relé "sin sesión" y la corta al minuto — la
+   * sesión sigue EN_USO en el panel de producción con la silla apagada.
+   * `APAGAR_RELES_HUERFANOS=false` desactiva el apagado (queda el aviso).
+   */
+  private readonly apagarHuerfanos: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly sesiones: SesionesService,
     private readonly heartbeat: HeartbeatService,
     private readonly shelly: ShellyService,
-  ) {}
+    @Optional() config?: ConfigService,
+  ) {
+    const valor = (config?.get<string>('APAGAR_RELES_HUERFANOS', '') ?? '').trim().toLowerCase();
+    this.apagarHuerfanos = valor !== 'false' && valor !== '0';
+    if (!this.apagarHuerfanos) {
+      this.logger.warn(
+        'APAGAR_RELES_HUERFANOS=false: los relés encendidos sin sesión solo se avisan, no se apagan',
+      );
+    }
+  }
 
   @Interval(INTERVALO_MS)
   async revisar(): Promise<void> {
@@ -256,11 +275,24 @@ export class EnergiaService {
       }
       if (Date.now() - desde < CONFIRMACION_HUERFANO_MS) continue;
 
+      if (!this.apagarHuerfanos) {
+        // Se avisa una vez por episodio: se reinicia el contador para no
+        // llenar el log cada 15 s.
+        this.huerfanosDesde.set(sillaId, Date.now());
+        this.logger.warn(
+          `Silla ${s.nombre} (${s.deviceId}): relé encendido sin sesión en esta base; ` +
+            'no se apaga (APAGAR_RELES_HUERFANOS=false)',
+        );
+        continue;
+      }
+
       try {
         await this.shelly.setRele(s.deviceId, false);
         this.huerfanosDesde.delete(sillaId);
         this.logger.warn(
-          `Silla ${s.nombre}: relé encendido sin sesión activa, se apagó automáticamente`,
+          `Silla ${s.nombre} (${s.deviceId}): relé encendido sin sesión activa, ` +
+            'se apagó automáticamente. Si había una sesión en otro ambiente, ese ' +
+            'device está cargado en dos backends (ver docs/DEPLOY.md)',
         );
       } catch (e) {
         this.logger.error(`No se pudo apagar el relé huérfano de ${s.nombre}: ${e}`);

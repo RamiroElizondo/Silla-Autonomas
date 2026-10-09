@@ -150,10 +150,13 @@ Generar secretos (uno distinto por ambiente): `openssl rand -hex 32`.
 | `TURNSTILE_SECRET_KEY` | secret key del widget del ambiente |
 | `MAX_PENDIENTES_POR_IP` | `3` |
 | `CORS_ORIGINS` | opcional, ej. `https://relaja.com.ar` |
+| `APAGAR_RELES_HUERFANOS` | prod: sin definir · beta: `false` si comparte cuenta Shelly con prod |
 
 `NODE_ENV=production` ya viene en la imagen. **Nunca** definir `LOADTEST` ni `MP_WEBHOOK_ALLOW_UNSIGNED` (el arranque aborta en producción).
 
 > **Beta y el hardware real:** un device Shelly pertenece a una sola cuenta. Si beta usa la misma cuenta/`SHELLY_AUTH_KEY` y una silla con el device real, **probar en beta enciende la silla real**. En beta cargá sillas con un `deviceIdShelly` de prueba (o un Shelly de escritorio) y credenciales de Mercado Pago de prueba.
+>
+> Peor todavía: con el device real cargado en beta, el backend de beta ve el relé encendido por una sesión de **producción** como "relé sin sesión" y lo **apaga a los ~60–75 s** (la sesión sigue EN_USO en el panel de prod). Lo mismo pasa con un backend local corriendo con la misma `SHELLY_AUTH_KEY`. Si beta tiene que ver el equipo real, definí `APAGAR_RELES_HUERFANOS=false` en `sillas-back-beta`.
 
 **Frontend**:
 
