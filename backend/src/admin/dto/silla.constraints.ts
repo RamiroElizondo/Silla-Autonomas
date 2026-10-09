@@ -27,6 +27,9 @@ export const DEVICE_ID_SHELLY_MENSAJE =
  */
 export const PRECIO_MAXIMO = 1_000_000;
 
+/** Duración máxima de una opción de masaje, en minutos. */
+export const DURACION_MAXIMA_MIN = 120;
+
 /** Largo máximo del nombre de la silla (se muestra en landing, TV y panel). */
 export const NOMBRE_MAX_LENGTH = 80;
 

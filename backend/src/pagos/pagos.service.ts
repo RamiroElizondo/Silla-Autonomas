@@ -80,6 +80,7 @@ export class PagosService {
     origin: string | undefined,
     turnstileToken: string | undefined,
     ipCliente: string,
+    opcion?: number,
   ) {
     const silla = await this.sillas.obtener(sillaId);
 
@@ -101,14 +102,20 @@ export class PagosService {
     }
 
     const externalReference = `${randomUUID()}|${sillaId}`;
-    const sesion = await this.sesiones.crearSesionPendiente(silla, externalReference, ipHash);
+    const sesion = await this.sesiones.crearSesionPendiente(
+      silla,
+      externalReference,
+      ipHash,
+      opcion,
+    );
 
     const frontendOrigin = (origin ?? this.frontendUrlFallback).replace(/\/+$/, '');
 
     try {
       const pref = await this.mp.crearPreferencia({
-        titulo: `${silla.nombre} — ${silla.duracionMin} min de masaje`,
-        precio: Number(silla.precio),
+        // Duración y monto salen de la sesión, que ya copió la opción elegida.
+        titulo: `${silla.nombre} — ${sesion.duracionMin} min de masaje`,
+        precio: Number(sesion.monto),
         externalReference,
         itemId: sillaId,
         // El id de sesión viaja en la URL de vuelta: sessionStorage es por

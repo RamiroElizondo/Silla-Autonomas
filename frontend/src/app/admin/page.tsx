@@ -366,7 +366,8 @@ function Dashboard({
               <div className="min-w-0">
                 <p className="text-[15px] font-medium">{silla.nombre}</p>
                 <p className="mt-0.5 break-words text-[13px] text-tinta-muted">
-                  ${silla.precio.toLocaleString("es-AR")} · {silla.duracionMin} min
+                  {silla.opcion1DuracionMin} min ${silla.opcion1Precio.toLocaleString("es-AR")} ·{" "}
+                  {silla.opcion2DuracionMin} min ${silla.opcion2Precio.toLocaleString("es-AR")}
                   {silla.modeloShelly && ` · ${silla.modeloShelly}`}
                   {silla.salud?.potenciaW != null &&
                     ` · consumo ${Math.round(silla.salud.potenciaW)} W`}

@@ -29,7 +29,13 @@ export class ColaController {
   @Throttle({ default: LIMITE_CHECKOUT })
   checkout(@Body() dto: UnirseColaDto, @Req() req: Request) {
     const ipCliente = resolverIpConfiable(req);
-    return this.cola.unirse(dto.origin, dto.turnstileToken, ipCliente);
+    return this.cola.unirse(
+      dto.origin,
+      dto.turnstileToken,
+      ipCliente,
+      dto.opcion,
+      dto.sillaId,
+    );
   }
 
   /**

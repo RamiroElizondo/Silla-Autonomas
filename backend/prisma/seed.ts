@@ -24,8 +24,10 @@ async function main() {
     await prisma.silla.create({
       data: {
         nombre: 'Sillón 1',
-        precio: 3000,
-        duracionMin: 10,
+        opcion1DuracionMin: 5,
+        opcion1Precio: 1500,
+        opcion2DuracionMin: 10,
+        opcion2Precio: 3000,
         deviceIdShelly: 'CAMBIAR_DEVICE_ID',
       },
     });

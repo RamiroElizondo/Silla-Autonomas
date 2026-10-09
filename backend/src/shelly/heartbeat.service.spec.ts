@@ -137,3 +137,26 @@ describe('HeartbeatService — hora de la lectura', () => {
     expect(s.ultimoOnline).toEqual(leidoEn);
   });
 });
+
+describe('HeartbeatService — ultimoReleEncendido', () => {
+  it('guarda la última lectura con el relé cerrado y la conserva cuando aparece abierto', async () => {
+    const silla = crearSilla();
+    const leidoEn = new Date(Date.now() - 30_000);
+    const dev = crearDispositivo({
+      deviceId: silla.deviceIdShelly,
+      online: true,
+      releEncendido: true,
+      leidoEn,
+    });
+    const shelly = { listarDispositivos: jest.fn().mockResolvedValue([dev]) } as any;
+    const heartbeat = new HeartbeatService(crearPrismaMock([silla]), shelly);
+
+    await heartbeat.chequear();
+    shelly.listarDispositivos.mockResolvedValue([
+      { ...dev, releEncendido: false, leidoEn: new Date() },
+    ]);
+    await heartbeat.chequear();
+
+    expect(heartbeat.getSaludDe(silla.id)!.ultimoReleEncendido).toEqual(leidoEn);
+  });
+});

@@ -8,6 +8,7 @@ import type {
   EstadoPublico,
   EstadoSesionPublico,
   EstadoTurnoPublico,
+  NumeroOpcion,
   HistorialRespuesta,
   PagoRevision,
   ResolverPagoPayload,
@@ -115,7 +116,11 @@ export function confirmarSesion(sesionId: string) {
   });
 }
 
-export function iniciarCheckout(sillaId: string, turnstileToken?: string | null) {
+export function iniciarCheckout(
+  sillaId: string,
+  turnstileToken?: string | null,
+  opcion?: NumeroOpcion,
+) {
   // Le pasamos al backend el origin público actual (el dominio del túnel,
   // o localhost en dev) para que arme los back_urls de Mercado Pago, y el
   // token de Turnstile del widget del botón de pagar (ver TurnstileWidget).
@@ -125,6 +130,7 @@ export function iniciarCheckout(sillaId: string, turnstileToken?: string | null)
     body: JSON.stringify({
       ...(origin ? { origin } : {}),
       ...(turnstileToken ? { turnstileToken } : {}),
+      ...(opcion ? { opcion } : {}),
     }),
   });
 }
@@ -261,13 +267,23 @@ export function obtenerResumenCola() {
   return request<ColaResumen>(`/cola/estado`);
 }
 
-export function unirseCola(turnstileToken?: string | null) {
+/**
+ * `sillaId` es el sillón cuyo QR se escaneó: el backend cobra la opción con
+ * los valores de ese sillón, que son los que el cliente vio en pantalla.
+ */
+export function unirseCola(
+  turnstileToken?: string | null,
+  opcion?: NumeroOpcion,
+  sillaId?: string,
+) {
   const origin = typeof window !== "undefined" ? window.location.origin : undefined;
   return request<TurnoCheckoutRespuesta>(`/cola/checkout`, {
     method: "POST",
     body: JSON.stringify({
       ...(origin ? { origin } : {}),
       ...(turnstileToken ? { turnstileToken } : {}),
+      ...(opcion ? { opcion } : {}),
+      ...(sillaId ? { sillaId } : {}),
     }),
   });
 }

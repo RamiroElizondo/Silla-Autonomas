@@ -12,6 +12,7 @@ import { CreditosService } from '../creditos/creditos.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from '../shelly/heartbeat.service';
 import { ShellyService } from '../shelly/shelly.service';
+import { opcionDe } from '../sillas/opciones.util';
 import { SillasService } from '../sillas/sillas.service';
 import { calcularReloj } from './reloj.util';
 
@@ -50,6 +51,15 @@ export const GRACIA_REINICIO_SEG = 30;
  * no es un turno perdido.
  */
 export const RESTO_DESPRECIABLE_SEG = 60;
+
+/**
+ * Lo despreciable depende del largo del turno: 60 s son el 10% de un masaje
+ * de 10 minutos pero el 20% de uno de 5. Se toma el 10% del turno, con
+ * RESTO_DESPRECIABLE_SEG como techo (5 min → 30 s, 10 min → 60 s).
+ */
+export function restoDespreciableSeg(duracionMin: number): number {
+  return Math.min(RESTO_DESPRECIABLE_SEG, Math.round(duracionMin * 60 * 0.1));
+}
 
 /**
  * Cuánto se espera a que vuelva la luz cuando el pago ya entró pero la silla
@@ -249,6 +259,7 @@ export class SesionesService implements OnApplicationBootstrap {
     silla: Silla,
     externalReference: string,
     ipHash: string | null = null,
+    opcion?: number,
   ) {
     // Antes que nada: no cobramos lo que no podemos entregar. Si el Shelly
     // no responde (corte en el local, WiFi caído), el cliente ni llega al
@@ -272,8 +283,7 @@ export class SesionesService implements OnApplicationBootstrap {
       data: {
         sillaId: silla.id,
         externalReference,
-        monto: silla.precio,
-        duracionMin: silla.duracionMin,
+        ...opcionDe(silla, opcion),
         ...tiemposDeSilla(silla),
         ipHash: ipHash ?? undefined,
       },
@@ -632,7 +642,7 @@ export class SesionesService implements OnApplicationBootstrap {
       : 0;
 
     // Un corte sobre el final no es un turno perdido: se da por cumplido.
-    if (restanteAlCorteSeg <= RESTO_DESPRECIABLE_SEG) {
+    if (restanteAlCorteSeg <= restoDespreciableSeg(sesion.duracionMin)) {
       await this.cerrarYLiberar(sesion.id, sesion.sillaId, {
         estado: 'COMPLETADA',
         motivo: 'corte_sobre_el_final',
@@ -722,6 +732,14 @@ export class SesionesService implements OnApplicationBootstrap {
       return;
     }
 
+    if (motivo === 'tiempo_cumplido' && (await this.detectarCorteAlCierre(sesion))) {
+      this.logger.warn(
+        `Silla ${sesion.silla.nombre}: corte de energía visto recién al cerrar la ` +
+          `sesión ${sesionId}, cierre postergado`,
+      );
+      return;
+    }
+
     try {
       await this.shelly.setRele(sesion.silla.deviceIdShelly, false);
     } catch (e) {
@@ -770,6 +788,75 @@ export class SesionesService implements OnApplicationBootstrap {
       `Silla ${sesion.silla.nombre}: tiempo cumplido, SALIDA (retorno a las ` +
         `${inicioRetorno.toISOString()}, libre a las ${salidaHasta.toISOString()})`,
     );
+  }
+
+  /**
+   * Última mirada al equipo antes de dar el turno por cumplido.
+   *
+   * El heartbeat lee cada 30 s y Shelly Cloud tarda en marcar offline un
+   * equipo que se quedó sin luz, así que un corte en el último tramo del
+   * turno puede no haberse visto todavía cuando vence el timer. En un turno
+   * de 5 minutos ese tramo ciego es una parte grande del masaje: antes de
+   * cerrar se consulta el equipo en vivo (un request más por sesión).
+   *
+   *  - Offline: el corte sigue. Se registra desde la última vez que se lo vio
+   *    online y EnergiaService decide como con cualquier corte (reanudar
+   *    devolviendo el tiempo, o cerrar con vale si pasa el umbral).
+   *  - Online con el relé abierto: el relé tiene que seguir cerrado hasta
+   *    MARGEN_AUTO_OFF_SEG después del fin, así que abierto significa que el
+   *    equipo rebooteó (corte breve que el heartbeat no llegó a ver). Se
+   *    registra desde la última lectura con el relé cerrado y EnergiaService
+   *    lo reanuda en el próximo tick.
+   *
+   * Si lo que se perdió es despreciable, o si la consulta falla, se cierra
+   * como siempre: un problema nuestro con la nube no puede dejar la silla
+   * tomada. Devuelve true si registró un corte.
+   */
+  private async detectarCorteAlCierre(sesion: {
+    id: string;
+    sillaId: string;
+    duracionMin: number;
+    inicio: Date | null;
+    finProgramado: Date | null;
+    silla: { deviceIdShelly: string };
+  }): Promise<boolean> {
+    if (!sesion.inicio || !sesion.finProgramado) return false;
+    const deviceId = sesion.silla.deviceIdShelly;
+
+    let dev;
+    try {
+      [dev] = await this.shelly.listarDispositivos([deviceId]);
+    } catch (e) {
+      this.logger.warn(`No se pudo verificar la energía al cerrar ${sesion.id}: ${e}`);
+      return false;
+    }
+    // Sin el equipo en la cuenta no hay corte que medir (lo avisa el heartbeat).
+    if (!dev) return false;
+
+    const salud = this.heartbeat.getSaludDe(sesion.sillaId);
+    let desde: Date;
+    if (!dev.online) {
+      desde = salud?.ultimoOnline ?? dev.leidoEn;
+    } else if (dev.releEncendido === false) {
+      desde = salud?.ultimoReleEncendido ?? dev.leidoEn;
+    } else {
+      return false;
+    }
+
+    // Nunca antes del arranque ni del último ON (al reanudar un corte previo
+    // se vuelve a mandar): lo anterior ya se compensó o no era de esta sesión.
+    const piso = Math.max(
+      sesion.inicio.getTime(),
+      this.shelly.ultimoComandoEn(deviceId)?.getTime() ?? 0,
+    );
+    const inicioCorte = new Date(Math.max(desde.getTime(), piso));
+
+    const perdidoSeg = Math.round(
+      (sesion.finProgramado.getTime() - inicioCorte.getTime()) / 1000,
+    );
+    if (perdidoSeg <= restoDespreciableSeg(sesion.duracionMin)) return false;
+
+    return this.registrarCorte(sesion.id, inicioCorte);
   }
 
   /**
@@ -962,7 +1049,7 @@ export class SesionesService implements OnApplicationBootstrap {
         sillaId,
         externalReference: `manual-${crypto.randomUUID()}`,
         monto: 0,
-        duracionMin: duracionMin ?? silla.duracionMin,
+        duracionMin: duracionMin ?? opcionDe(silla).duracionMin,
         ...tiemposDeSilla(silla),
         esManual: true,
       },

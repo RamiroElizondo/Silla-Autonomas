@@ -5,6 +5,7 @@ import { TtlCache } from '../common/ttl-cache';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from '../shelly/heartbeat.service';
 import { calcularReloj } from '../sesiones/reloj.util';
+import { OPCION_POR_DEFECTO, opcionDe, opcionesPublicas } from './opciones.util';
 
 type SesionVigente = Pick<
   Sesion,
@@ -64,6 +65,9 @@ export class SillasService {
     let fase: string | null = null;
     let segundosSalida: number | null = null;
     let segundosParaLiberar: number | null = null;
+    // Duración del turno en curso (para la barra de progreso): puede ser la
+    // opción 1 o la 2, así que sale de la sesión y no de la silla.
+    let duracionSesionMin: number | null = null;
     if (silla.estado === 'EN_USO') {
       const sesion = await this.cacheSesion.obtenerOCargar(id, () =>
         this.prisma.sesion.findFirst({
@@ -78,6 +82,7 @@ export class SillasService {
         }),
       );
       if (sesion) {
+        duracionSesionMin = sesion.duracionMin;
         const reloj = calcularReloj(sesion);
         segundosRestantes = reloj.segundosRestantes;
         fase = reloj.fase;
@@ -95,8 +100,12 @@ export class SillasService {
       id: silla.id,
       nombre: silla.nombre,
       estado: silla.estado,
-      precio: Number(silla.precio),
-      duracionMin: silla.duracionMin,
+      // Lo que el cliente elige antes de pagar. Viene seleccionada la
+      // `opcionPorDefecto`.
+      opciones: opcionesPublicas(silla),
+      opcionPorDefecto: OPCION_POR_DEFECTO,
+      // Turno en curso si hay uno; si no, la opción por defecto.
+      duracionMin: duracionSesionMin ?? opcionDe(silla).duracionMin,
       segundosRestantes,
       // GRACIA (esperando START, reloj congelado) | MASAJE | PAUSA | RETORNO
       fase,

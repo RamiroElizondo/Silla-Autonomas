@@ -21,9 +21,18 @@ export function FormSilla({
   onCancelar: () => void;
 }) {
   const [nombre, setNombre] = useState(silla?.nombre ?? "");
-  const [precio, setPrecio] = useState(silla ? String(silla.precio) : "");
-  const [duracionMin, setDuracionMin] = useState(
-    silla ? String(silla.duracionMin) : "10",
+  // Dos opciones de masaje; el cliente elige antes de pagar y viene marcada la 2.
+  const [opcion1DuracionMin, setOpcion1DuracionMin] = useState(
+    String(silla?.opcion1DuracionMin ?? 5),
+  );
+  const [opcion1Precio, setOpcion1Precio] = useState(
+    silla ? String(silla.opcion1Precio) : "",
+  );
+  const [opcion2DuracionMin, setOpcion2DuracionMin] = useState(
+    String(silla?.opcion2DuracionMin ?? 10),
+  );
+  const [opcion2Precio, setOpcion2Precio] = useState(
+    silla ? String(silla.opcion2Precio) : "",
   );
   const [deviceId, setDeviceId] = useState(silla?.deviceIdShelly ?? "");
   // Tiempos propios de la masajeadora (ver backend/src/sesiones/reloj.util.ts).
@@ -66,8 +75,10 @@ export function FormSilla({
     setError(null);
     const payload = {
       nombre: nombre.trim(),
-      precio: Number(precio),
-      duracionMin: Number(duracionMin),
+      opcion1DuracionMin: Number(opcion1DuracionMin),
+      opcion1Precio: Number(opcion1Precio),
+      opcion2DuracionMin: Number(opcion2DuracionMin),
+      opcion2Precio: Number(opcion2Precio),
       deviceIdShelly: deviceId.trim(),
       graciaInicioSeg: Number(graciaInicioSeg),
       pausaRetornoSeg: Number(pausaRetornoSeg),
@@ -111,32 +122,61 @@ export function FormSilla({
             className={claseInput}
           />
         </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-xs text-tinta-muted">Precio (AR$)</span>
-          <input
-            required
-            type="number"
-            min={1}
-            step="any"
-            value={precio}
-            onChange={(e) => setPrecio(e.target.value)}
-            placeholder="3000"
-            className={claseInput}
-          />
-        </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="text-xs text-tinta-muted">Duración (min)</span>
-          <input
-            required
-            type="number"
-            min={1}
-            max={120}
-            value={duracionMin}
-            onChange={(e) => setDuracionMin(e.target.value)}
-            className={claseInput}
-          />
-        </label>
       </div>
+
+      {(
+        [
+          {
+            n: 1,
+            titulo: "Opción 1",
+            duracion: opcion1DuracionMin,
+            setDuracion: setOpcion1DuracionMin,
+            precio: opcion1Precio,
+            setPrecio: setOpcion1Precio,
+            placeholder: "1500",
+          },
+          {
+            n: 2,
+            titulo: "Opción 2 · viene seleccionada",
+            duracion: opcion2DuracionMin,
+            setDuracion: setOpcion2DuracionMin,
+            precio: opcion2Precio,
+            setPrecio: setOpcion2Precio,
+            placeholder: "3000",
+          },
+        ] as const
+      ).map((o) => (
+        <fieldset key={o.n} className="mt-4">
+          <legend className="text-xs font-medium text-tinta-suave">{o.titulo}</legend>
+          <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs text-tinta-muted">Duración (min)</span>
+              <input
+                required
+                type="number"
+                min={1}
+                max={120}
+                value={o.duracion}
+                onChange={(e) => o.setDuracion(e.target.value)}
+                className={claseInput}
+              />
+            </label>
+            <label className="flex flex-col gap-1.5">
+              <span className="text-xs text-tinta-muted">Precio (AR$)</span>
+              <input
+                required
+                type="number"
+                min={1}
+                step="any"
+                value={o.precio}
+                onChange={(e) => o.setPrecio(e.target.value)}
+                placeholder={o.placeholder}
+                className={claseInput}
+              />
+            </label>
+          </div>
+        </fieldset>
+      ))}
 
       <fieldset className="mt-4">
         <legend className="text-xs font-medium text-tinta-suave">

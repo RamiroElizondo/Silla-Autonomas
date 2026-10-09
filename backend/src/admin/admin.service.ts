@@ -139,7 +139,8 @@ export class AdminService {
     const salud = new Map(this.heartbeat.getSalud().map((s) => [s.sillaId, s]));
     return sillas.map((s) => ({
       ...s,
-      precio: Number(s.precio),
+      opcion1Precio: Number(s.opcion1Precio),
+      opcion2Precio: Number(s.opcion2Precio),
       salud: salud.get(s.id) ?? null,
     }));
   }

@@ -20,6 +20,12 @@ export interface SaludSilla {
    * cuándo empezó el corte, y es la que se usa para compensar al cliente.
    */
   ultimoOnline: Date | null;
+  /**
+   * Último chequeo en el que el relé figuraba cerrado (equipo online). Si al
+   * terminar un turno el relé aparece abierto, el equipo se reinició en algún
+   * momento después de esto: es desde donde se le devuelve el tiempo.
+   */
+  ultimoReleEncendido: Date | null;
 }
 
 /**
@@ -127,6 +133,10 @@ export class HeartbeatService {
         alertas,
         ultimoChequeo: ahora,
         ultimoOnline: estado.online ? ahora : (previo?.ultimoOnline ?? null),
+        ultimoReleEncendido:
+          estado.online && estado.releEncendido === true
+            ? ahora
+            : (previo?.ultimoReleEncendido ?? null),
       });
     }
   }

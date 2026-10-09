@@ -38,6 +38,7 @@ function salud(overrides: Partial<{
   alertas: string[];
   ultimoChequeo: Date;
   ultimoOnline: Date | null;
+  ultimoReleEncendido?: Date | null;
 }> = {}) {
   return {
     sillaId: 'silla-1',

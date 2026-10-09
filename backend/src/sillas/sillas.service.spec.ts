@@ -12,8 +12,10 @@ function crearServicio(
     id: 'silla-1',
     nombre: 'Silla 1',
     estado: 'LIBRE',
-    precio: 1000,
-    duracionMin: 10,
+    opcion1DuracionMin: 5,
+    opcion1Precio: 500,
+    opcion2DuracionMin: 10,
+    opcion2Precio: 1000,
     finSesionActual: null,
   };
   const findUnique = jest
@@ -70,8 +72,10 @@ describe('SillasService — cache TTL de estado (Bloque C)', () => {
         id: 'silla-1',
         nombre: 'Silla 1',
         estado: 'EN_USO',
-        precio: 1000,
-        duracionMin: 10,
+        opcion1DuracionMin: 5,
+        opcion1Precio: 500,
+        opcion2DuracionMin: 10,
+        opcion2Precio: 1000,
         finSesionActual,
       },
     });
@@ -110,8 +114,10 @@ describe('SillasService.estadoPublico — gracia de inicio y fase SALIDA', () =>
     id: 'silla-1',
     nombre: 'Silla 1',
     estado: 'EN_USO',
-    precio: 1000,
-    duracionMin: 10,
+    opcion1DuracionMin: 5,
+    opcion1Precio: 500,
+    opcion2DuracionMin: 10,
+    opcion2Precio: 1000,
     finSesionActual: new Date(Date.now() + 620_000),
   };
 
@@ -171,5 +177,47 @@ describe('SillasService.estadoPublico — gracia de inicio y fase SALIDA', () =>
     expect(r.segundosSalida).toBe(30);
     // Para quien espera: pausa + retorno en un solo número.
     expect(r.segundosParaLiberar).toBe(30);
+  });
+});
+
+describe('SillasService.estadoPublico — opciones de masaje', () => {
+  it('libre: publica las dos opciones y la 2 como la seleccionada', async () => {
+    const { servicio } = crearServicio();
+
+    const r = await servicio.estadoPublico('silla-1');
+
+    expect(r.opciones).toEqual([
+      { opcion: 1, duracionMin: 5, precio: 500 },
+      { opcion: 2, duracionMin: 10, precio: 1000 },
+    ]);
+    expect(r.opcionPorDefecto).toBe(2);
+    expect(r.duracionMin).toBe(10);
+  });
+
+  it('en uso con la opción 1: duracionMin es la del turno en curso, no la de la opción 2', async () => {
+    const { servicio } = crearServicio({
+      silla: {
+        id: 'silla-1',
+        nombre: 'Silla 1',
+        estado: 'EN_USO',
+        opcion1DuracionMin: 5,
+        opcion1Precio: 500,
+        opcion2DuracionMin: 10,
+        opcion2Precio: 1000,
+        finSesionActual: new Date(Date.now() + 200_000),
+      },
+      sesion: {
+        estado: 'ACTIVA',
+        duracionMin: 5,
+        retornoSeg: 40,
+        finProgramado: new Date(Date.now() + 200_000),
+        salidaHasta: null,
+      },
+    });
+
+    const r = await servicio.estadoPublico('silla-1');
+
+    expect(r.duracionMin).toBe(5);
+    expect(r.segundosRestantes).toBe(200);
   });
 });

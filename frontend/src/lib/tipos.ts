@@ -19,12 +19,25 @@ export type EstadoSilla =
  */
 export type FaseTurno = "GRACIA" | "MASAJE" | "PAUSA" | "RETORNO";
 
+/** Número de opción de masaje de un sillón (ver backend/src/sillas/opciones.util.ts). */
+export type NumeroOpcion = 1 | 2;
+
+/** Una de las dos opciones de masaje que el cliente elige antes de pagar. */
+export interface OpcionMasaje {
+  opcion: NumeroOpcion;
+  duracionMin: number;
+  precio: number;
+}
+
 /** Respuesta de GET /sillas/:id/estado */
 export interface EstadoPublico {
   id: string;
   nombre: string;
   estado: EstadoSilla;
-  precio: number;
+  /** Las dos opciones del sillón; viene seleccionada `opcionPorDefecto`. */
+  opciones: OpcionMasaje[];
+  opcionPorDefecto: NumeroOpcion;
+  /** Duración del turno en curso (EN_USO) o de la opción por defecto. */
   duracionMin: number;
   segundosRestantes: number | null;
   fase?: FaseTurno | null;
@@ -68,8 +81,10 @@ export interface SillaAdmin {
   id: string;
   nombre: string;
   estado: EstadoSilla;
-  precio: number;
-  duracionMin: number;
+  opcion1DuracionMin: number;
+  opcion1Precio: number;
+  opcion2DuracionMin: number;
+  opcion2Precio: number;
   graciaInicioSeg: number;
   pausaRetornoSeg: number;
   retornoSeg: number;
@@ -109,8 +124,10 @@ export interface VerificacionDispositivo {
 /** Payload de POST /admin/sillas */
 export interface CrearSillaPayload {
   nombre: string;
-  precio: number;
-  duracionMin: number;
+  opcion1DuracionMin: number;
+  opcion1Precio: number;
+  opcion2DuracionMin: number;
+  opcion2Precio: number;
   deviceIdShelly: string;
   graciaInicioSeg?: number;
   pausaRetornoSeg?: number;

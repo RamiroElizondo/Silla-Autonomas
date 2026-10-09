@@ -113,12 +113,19 @@ export default function PantallaTV({
         <h1 className="mt-3 text-[4.5vw] font-medium leading-tight lg:text-5xl">
           Tu masaje te espera
         </h1>
-        <p className="mt-5 text-[6vw] font-medium leading-none text-terracota lg:text-7xl">
-          ${estado.precio.toLocaleString("es-AR")}
-        </p>
-        <p className="mt-3 text-xl text-tinta-suave">
-          {estado.duracionMin} minutos · {estado.nombre}
-        </p>
+        <div className="mt-6 flex flex-col gap-4">
+          {estado.opciones.map((o) => (
+            <p key={o.opcion} className="flex items-baseline gap-5">
+              <span className="w-[13vw] text-[3vw] text-tinta-suave tabular-nums lg:w-48 lg:text-4xl">
+                {o.duracionMin} min
+              </span>
+              <span className="text-[5vw] font-medium leading-none text-terracota tabular-nums lg:text-6xl">
+                ${o.precio.toLocaleString("es-AR")}
+              </span>
+            </p>
+          ))}
+        </div>
+        <p className="mt-5 text-xl text-tinta-suave">{estado.nombre}</p>
         <div className="mt-6">
           <EstadoBadge estado={estado.estado} />
         </div>

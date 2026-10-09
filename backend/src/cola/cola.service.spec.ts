@@ -21,7 +21,7 @@ function crearServicio(
   const prisma: any = {
     silla: {
       findMany: jest.fn().mockResolvedValue([
-        { id: 'silla-1', precio: 1000, duracionMin: 10 },
+        { id: 'silla-1', opcion1DuracionMin: 5, opcion1Precio: 500, opcion2DuracionMin: 10, opcion2Precio: 1000 },
       ]),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findUnique: jest.fn().mockResolvedValue({
@@ -137,6 +137,37 @@ describe('ColaService.unirse — Turnstile y tope por IP (Hallazgo ALTO 2)', () 
     expect(prisma.turno.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ ipHash: 'hash:1.2.3.4' }),
+      }),
+    );
+  });
+
+  it('cobra la opción elegida con los valores del sillón cuyo QR se escaneó', async () => {
+    const { servicio, prisma, mp } = crearServicio({ pendientesPorHash: {} });
+    prisma.silla.findMany = jest.fn().mockResolvedValue([
+      { id: 'silla-1', opcion1DuracionMin: 5, opcion1Precio: 500, opcion2DuracionMin: 10, opcion2Precio: 1000 },
+      { id: 'silla-2', opcion1DuracionMin: 6, opcion1Precio: 700, opcion2DuracionMin: 12, opcion2Precio: 1300 },
+    ]);
+
+    await servicio.unirse(undefined, 'token-ok', '1.2.3.4', 1, 'silla-2');
+
+    expect(prisma.turno.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ opcion: 1, duracionMin: 6, monto: 700 }),
+      }),
+    );
+    expect(mp.crearPreferencia).toHaveBeenCalledWith(
+      expect.objectContaining({ precio: 700 }),
+    );
+  });
+
+  it('sin opción ni sillón de referencia, anota la opción 2 de una silla activa', async () => {
+    const { servicio, prisma } = crearServicio({ pendientesPorHash: {} });
+
+    await servicio.unirse(undefined, 'token-ok', '1.2.3.4');
+
+    expect(prisma.turno.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ opcion: 2, duracionMin: 10, monto: 1000 }),
       }),
     );
   });

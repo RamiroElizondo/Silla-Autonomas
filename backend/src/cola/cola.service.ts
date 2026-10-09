@@ -25,6 +25,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SesionesService, tiemposDeSilla } from '../sesiones/sesiones.service';
 import { calcularReloj, FaseReloj } from '../sesiones/reloj.util';
 import { HeartbeatService } from '../shelly/heartbeat.service';
+import { opcionDe } from '../sillas/opciones.util';
 import { SillasService } from '../sillas/sillas.service';
 import { generarCodigo } from './codigo.util';
 
@@ -165,10 +166,13 @@ export class ColaService implements OnApplicationBootstrap {
     origin: string | undefined,
     turnstileToken: string | undefined,
     ipCliente: string,
+    opcion?: number,
+    sillaIdReferencia?: string,
   ) {
-    // Todas las sillas del local cobran lo mismo hoy (asunción de v1): se
-    // usa cualquier silla activa como referencia de precio/duración, ya que
-    // al anotarse todavía no se sabe qué silla puntual va a tocar.
+    // Al anotarse todavía no se sabe qué silla puntual va a tocar. Las
+    // opciones (duración/precio) se toman del sillón cuyo QR escaneó el
+    // cliente — son las que vio en pantalla —; si no vino o no existe, de
+    // cualquier silla activa.
     const sillas = await this.prisma.silla.findMany({
       where: { estado: { not: 'FUERA_DE_SERVICIO' } },
     });
@@ -182,7 +186,8 @@ export class ColaService implements OnApplicationBootstrap {
         'Los sillones están sin conexión en este momento. Probá en unos minutos.',
       );
     }
-    const silla = conEnergia[0];
+    const silla = sillas.find((s) => s.id === sillaIdReferencia) ?? conEnergia[0];
+    const elegida = opcionDe(silla, opcion);
 
     const verificacion = await this.turnstile.verificar(turnstileToken, ipCliente);
     if (!verificacion.ok) {
@@ -210,8 +215,7 @@ export class ColaService implements OnApplicationBootstrap {
       return tx.turno.create({
         data: {
           externalReference: `turno:${randomUUID()}`,
-          monto: silla.precio,
-          duracionMin: silla.duracionMin,
+          ...elegida,
           ipHash,
         },
       });
@@ -380,6 +384,7 @@ export class ColaService implements OnApplicationBootstrap {
         externalReference: `turno-sesion:${turno.id}`,
         monto: turno.monto,
         duracionMin: turno.duracionMin,
+        opcion: turno.opcion,
         ...(silla ? tiemposDeSilla(silla) : {}),
       },
     });

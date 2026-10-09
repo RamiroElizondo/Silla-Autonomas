@@ -54,8 +54,13 @@ model Silla {
   id              String      @id @default(uuid())
   nombre          String
   estado          EstadoSilla @default(LIBRE)
-  precio          Decimal     @db.Decimal(10, 2)
-  duracionMin     Int         @default(10) @map("duracion_min")
+  // Dos opciones de masaje que el cliente elige antes de pagar; la landing
+  // trae la opción 2 seleccionada. Se copian a la Sesion/Turno al crearlos,
+  // así que editarlas no afecta lo que ya está pago.
+  opcion1DuracionMin Int     @default(5) @map("opcion1_duracion_min")
+  opcion1Precio      Decimal @db.Decimal(10, 2) @map("opcion1_precio")
+  opcion2DuracionMin Int     @default(10) @map("opcion2_duracion_min")
+  opcion2Precio      Decimal @db.Decimal(10, 2) @map("opcion2_precio")
   // Tiempos propios de la masajeadora (ver SesionesService): gracia para que
   // el cliente se siente y presione START, pausa con la silla apagada al
   // terminar, y pulso de energía para que vuelva a la posición vertical.
@@ -81,6 +86,9 @@ model Sesion {
   externalReference String       @unique @map("external_reference")
   monto             Decimal      @db.Decimal(10, 2)
   duracionMin       Int          @map("duracion_min")
+  // Opción de masaje que eligió el cliente (1 o 2). Null en activaciones
+  // manuales y en sesiones anteriores a que existieran las opciones.
+  opcion            Int?
   // Copia de los tiempos de la silla al crear la sesión (igual que
   // duracionMin): cambiarlos en el panel no afecta una sesión en curso.
   graciaInicioSeg   Int          @default(30) @map("gracia_inicio_seg")
@@ -158,6 +166,8 @@ model Turno {
   externalReference String      @unique @map("external_reference")
   monto             Decimal     @db.Decimal(10, 2)
   duracionMin       Int         @map("duracion_min")
+  // Opción elegida al anotarse (1 o 2). Null en turnos de canje de vale.
+  opcion            Int?
   // Mismo hash que Sesion.ipHash, mismo motivo (Hallazgo ALTO 2).
   ipHash            String?     @map("ip_hash")
   sillaId           String?     @map("silla_id")

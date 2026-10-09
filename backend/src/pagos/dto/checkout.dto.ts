@@ -1,4 +1,5 @@
-import { IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, IsUrl, MaxLength } from 'class-validator';
+import { OPCIONES_VALIDAS } from '../../sillas/opciones.util';
 
 /**
  * `origin` es el origin público desde el que el cliente abrió la landing
@@ -22,4 +23,10 @@ export class CheckoutDto {
   @IsString()
   @MaxLength(2048)
   turnstileToken?: string;
+
+  /** Opción de masaje elegida (1 o 2). Sin valor, la opción por defecto (2). */
+  @IsOptional()
+  @IsInt()
+  @IsIn([...OPCIONES_VALIDAS])
+  opcion?: number;
 }

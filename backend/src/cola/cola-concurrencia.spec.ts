@@ -28,8 +28,10 @@ interface FakeSilla {
   id: string;
   nombre: string;
   estado: EstadoSilla;
-  precio: number;
-  duracionMin: number;
+  opcion1DuracionMin: number;
+  opcion1Precio: number;
+  opcion2DuracionMin: number;
+  opcion2Precio: number;
 }
 interface FakeTurno {
   id: string;
@@ -75,8 +77,10 @@ class FakeDb {
         id: `silla-${i}`,
         nombre: `Silla ${i}`,
         estado: 'LIBRE',
-        precio: 1000,
-        duracionMin: 10,
+        opcion1DuracionMin: 5,
+        opcion1Precio: 500,
+        opcion2DuracionMin: 10,
+        opcion2Precio: 1000,
       });
     }
   }

@@ -18,6 +18,7 @@ import {
   RETORNO_MAX_SEG,
   NOMBRE_MAX_LENGTH,
   PRECIO_MAXIMO,
+  DURACION_MAXIMA_MIN,
 } from './silla.constraints';
 
 export class ActualizarSillaDto {
@@ -29,16 +30,28 @@ export class ActualizarSillaDto {
   nombre?: string;
 
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(DURACION_MAXIMA_MIN)
+  opcion1DuracionMin?: number;
+
+  @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(1)
   @Max(PRECIO_MAXIMO)
-  precio?: number;
+  opcion1Precio?: number;
 
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(120)
-  duracionMin?: number;
+  @Max(DURACION_MAXIMA_MIN)
+  opcion2DuracionMin?: number;
+
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(1)
+  @Max(PRECIO_MAXIMO)
+  opcion2Precio?: number;
 
   /** Cambiar el dispositivo Shelly vinculado (revalida modelo). */
   @IsOptional()
@@ -74,6 +87,6 @@ export class ActivarManualDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(120)
+  @Max(DURACION_MAXIMA_MIN)
   duracionMin?: number;
 }

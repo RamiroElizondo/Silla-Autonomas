@@ -57,8 +57,10 @@ function crearServicio(
     obtener: jest.fn().mockResolvedValue({
       id: 'silla-1',
       nombre: 'Silla 1',
-      precio: 1000,
-      duracionMin: 10,
+      opcion1DuracionMin: 5,
+      opcion1Precio: 500,
+      opcion2DuracionMin: 10,
+      opcion2Precio: 1000,
     }),
   };
   const cola: any = {

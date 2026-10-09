@@ -18,6 +18,7 @@ import {
   RETORNO_MAX_SEG,
   NOMBRE_MAX_LENGTH,
   PRECIO_MAXIMO,
+  DURACION_MAXIMA_MIN,
 } from './silla.constraints';
 
 export class CrearSillaDto {
@@ -27,17 +28,31 @@ export class CrearSillaDto {
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   nombre!: string;
 
+  // Dos opciones de masaje (ver sillas/opciones.util.ts). Las duraciones
+  // tienen default en la base (5 y 10 min); los precios son obligatorios.
   // maxDecimalPlaces: 2 porque el precio se cobra en pesos con centavos
   // (no tiene sentido, y Mercado Pago no acepta, más precisión que esa).
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(DURACION_MAXIMA_MIN)
+  opcion1DuracionMin?: number;
+
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(1)
   @Max(PRECIO_MAXIMO)
-  precio!: number;
+  opcion1Precio!: number;
 
+  @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(120)
-  duracionMin!: number;
+  @Max(DURACION_MAXIMA_MIN)
+  opcion2DuracionMin?: number;
+
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(1)
+  @Max(PRECIO_MAXIMO)
+  opcion2Precio!: number;
 
   /** ID del dispositivo en Shelly Cloud (validar con GET /admin/shelly/dispositivos/:deviceId). */
   @IsString()

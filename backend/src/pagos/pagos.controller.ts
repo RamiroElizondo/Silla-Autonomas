@@ -23,7 +23,13 @@ export class PagosController {
     @Req() req: Request,
   ) {
     const ipCliente = resolverIpConfiable(req);
-    return this.pagos.iniciarCheckout(id, dto.origin, dto.turnstileToken, ipCliente);
+    return this.pagos.iniciarCheckout(
+      id,
+      dto.origin,
+      dto.turnstileToken,
+      ipCliente,
+      dto.opcion,
+    );
   }
 
   /**

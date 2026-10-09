@@ -4,6 +4,7 @@ import {
   MARGEN_AUTO_OFF_SEG,
   MAX_ESPERA_ENERGIA_SEG,
   RESTO_DESPRECIABLE_SEG,
+  restoDespreciableSeg,
   SesionesService,
   TIMEOUT_PAGO_MIN,
   tiemposDeSilla,
@@ -167,7 +168,7 @@ describe('SesionesService — invalidación explícita al cambiar estado (Bloque
     prisma.sesion.create.mockResolvedValue({ id: 'sesion-nueva' });
 
     await servicio.crearSesionPendiente(
-      { id: 'silla-1', nombre: 'Silla 1', precio: 1000, duracionMin: 10 } as any,
+      { id: 'silla-1', nombre: 'Silla 1', opcion1DuracionMin: 5, opcion1Precio: 500, opcion2DuracionMin: 10, opcion2Precio: 1000 } as any,
       'ext-ref',
     );
 
@@ -370,7 +371,7 @@ describe('SesionesService.onApplicationBootstrap — recuperación tras reinicio
 });
 
 describe('SesionesService.crearSesionPendiente — casos adicionales', () => {
-  const silla = { id: 'silla-1', nombre: 'Silla 1', precio: 1500, duracionMin: 10 } as any;
+  const silla = { id: 'silla-1', nombre: 'Silla 1', opcion1DuracionMin: 5, opcion1Precio: 750, opcion2DuracionMin: 10, opcion2Precio: 1500 } as any;
 
   it('rechaza si el heartbeat marca la silla offline: no cobra lo que no puede entregar', async () => {
     const { servicio, heartbeat, prisma } = crearServicio();
@@ -408,6 +409,32 @@ describe('SesionesService.crearSesionPendiente — casos adicionales', () => {
           duracionMin: 10,
           ipHash: 'hash-ip',
         }),
+      }),
+    );
+  });
+
+  it('con la opción 1 copia su duración y su precio, y guarda qué opción fue', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.sesion.create.mockResolvedValue({ id: 'sesion-nueva' });
+
+    await servicio.crearSesionPendiente(silla, 'ext-1', null, 1);
+
+    expect(prisma.sesion.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ opcion: 1, monto: 750, duracionMin: 5 }),
+      }),
+    );
+  });
+
+  it('sin opción usa la 2 (la que viene seleccionada en la landing)', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.sesion.create.mockResolvedValue({ id: 'sesion-nueva' });
+
+    await servicio.crearSesionPendiente(silla, 'ext-1');
+
+    expect(prisma.sesion.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ opcion: 2, monto: 1500, duracionMin: 10 }),
       }),
     );
   });
@@ -1087,6 +1114,138 @@ describe('SesionesService.finalizarSesion — corta la corriente y libera', () =
   });
 });
 
+describe('SesionesService — corte de luz en turnos cortos (5 min)', () => {
+  it('lo despreciable es el 10% del turno con techo en RESTO_DESPRECIABLE_SEG', () => {
+    expect(restoDespreciableSeg(5)).toBe(30);
+    expect(restoDespreciableSeg(10)).toBe(RESTO_DESPRECIABLE_SEG);
+    expect(restoDespreciableSeg(30)).toBe(RESTO_DESPRECIABLE_SEG);
+  });
+
+  it('cerrarPorCorte: en un turno de 5 min, 45 s por delante no es despreciable y lleva vale', async () => {
+    const { servicio, prisma, creditos } = crearServicio();
+    creditos.emitir.mockResolvedValue({ codigo: 'LUZ-0005', duracionMin: 1 });
+    const interrumpidaEn = new Date('2026-01-01T00:00:00.000Z');
+    const finProgramado = new Date(interrumpidaEn.getTime() + 45_000);
+    prisma.sesion.findUnique.mockResolvedValue({
+      ...filaBase,
+      duracionMin: 5,
+      interrumpidaEn,
+      finProgramado,
+    });
+
+    await servicio.cerrarPorCorte('sesion-1');
+
+    expect(creditos.emitir).toHaveBeenCalledWith(expect.objectContaining({ duracionMin: 1 }));
+  });
+
+  // Sesión de 5 min que vence ahora: arrancó hace 5 min, el último ON fue al arrancar.
+  function sesionQueVence() {
+    const ahora = Date.now();
+    return {
+      ...filaBase,
+      duracionMin: 5,
+      inicio: new Date(ahora - 300_000),
+      finProgramado: new Date(ahora),
+    };
+  }
+
+  function conEquipo(dev: Record<string, unknown> | null, salud: Record<string, unknown> | null) {
+    const ctx = crearServicio();
+    ctx.shelly.listarDispositivos = jest
+      .fn()
+      .mockResolvedValue(dev ? [{ deviceId: 'dev-1', leidoEn: new Date(), ...dev }] : []);
+    ctx.shelly.ultimoComandoEn = jest.fn().mockReturnValue(null);
+    ctx.heartbeat.getSaludDe = jest.fn().mockReturnValue(salud);
+    ctx.prisma.sesion.findUnique.mockResolvedValue(sesionQueVence());
+    return ctx;
+  }
+
+  it('al cerrar, equipo offline: registra el corte desde la última vez que se lo vio online y no cierra', async () => {
+    const ultimoOnline = new Date(Date.now() - 90_000);
+    const { servicio, prisma, shelly } = conEquipo(
+      { online: false, releEncendido: true },
+      { ultimoOnline, ultimoReleEncendido: ultimoOnline },
+    );
+
+    await servicio.finalizarSesion('sesion-1', 'tiempo_cumplido');
+
+    expect(prisma.sesion.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.sesion.updateMany).toHaveBeenCalledWith({
+      where: { id: 'sesion-1', estado: 'ACTIVA', interrumpidaEn: null },
+      data: { interrumpidaEn: ultimoOnline, cortes: { increment: 1 } },
+    });
+    expect(shelly.setRele).not.toHaveBeenCalled();
+  });
+
+  it('al cerrar, relé abierto con el equipo online (reboot no visto): registra desde la última lectura con relé cerrado', async () => {
+    const ultimoReleEncendido = new Date(Date.now() - 70_000);
+    const { servicio, prisma, shelly } = conEquipo(
+      { online: true, releEncendido: false },
+      { ultimoOnline: new Date(), ultimoReleEncendido },
+    );
+
+    await servicio.finalizarSesion('sesion-1', 'tiempo_cumplido');
+
+    expect(prisma.sesion.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { interrumpidaEn: ultimoReleEncendido, cortes: { increment: 1 } },
+      }),
+    );
+    expect(shelly.setRele).not.toHaveBeenCalled();
+  });
+
+  it('al cerrar, si lo perdido es despreciable cierra como siempre', async () => {
+    const { servicio, prisma, shelly } = conEquipo(
+      { online: false, releEncendido: true },
+      { ultimoOnline: new Date(Date.now() - 20_000), ultimoReleEncendido: null },
+    );
+
+    await servicio.finalizarSesion('sesion-1', 'tiempo_cumplido');
+
+    expect(shelly.setRele).toHaveBeenCalledWith('dev-1', false);
+    expect(prisma.sesion.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ estado: 'COMPLETADA' }) }),
+    );
+  });
+
+  it('al cerrar, nunca cuenta el corte desde antes del último ON (reanudación previa)', async () => {
+    const ultimoOn = new Date(Date.now() - 50_000);
+    const { servicio, prisma, shelly } = conEquipo(
+      { online: false, releEncendido: true },
+      { ultimoOnline: new Date(Date.now() - 200_000), ultimoReleEncendido: null },
+    );
+    shelly.ultimoComandoEn.mockReturnValue(ultimoOn);
+
+    await servicio.finalizarSesion('sesion-1', 'tiempo_cumplido');
+
+    expect(prisma.sesion.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { interrumpidaEn: ultimoOn, cortes: { increment: 1 } } }),
+    );
+  });
+
+  it('al cerrar, equipo online con el relé cerrado: cierre normal', async () => {
+    const { servicio, prisma, shelly } = conEquipo({ online: true, releEncendido: true }, null);
+
+    await servicio.finalizarSesion('sesion-1', 'tiempo_cumplido');
+
+    expect(shelly.setRele).toHaveBeenCalledWith('dev-1', false);
+    expect(prisma.sesion.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ estado: 'COMPLETADA' }) }),
+    );
+  });
+
+  it('al cerrar, si Shelly Cloud no contesta, cierra como siempre (no retiene la silla por la nube)', async () => {
+    const { servicio, prisma, shelly } = conEquipo(null, null);
+    shelly.listarDispositivos.mockRejectedValue(new Error('timeout'));
+
+    await servicio.finalizarSesion('sesion-1', 'tiempo_cumplido');
+
+    expect(prisma.sesion.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ estado: 'COMPLETADA' }) }),
+    );
+  });
+});
+
 describe('SesionesService.detenerEmergencia — parada de emergencia', () => {
   it('lanza NotFoundException si la silla no existe', async () => {
     const { servicio, prisma, shelly } = crearServicio();
@@ -1146,7 +1305,7 @@ describe('SesionesService.activarManual — activación desde el panel, sin pago
 
   it('lanza ConflictException si la silla ya está en uso', async () => {
     const { servicio, prisma } = crearServicio();
-    prisma.silla.findUnique.mockResolvedValue({ id: 'silla-1', estado: 'EN_USO', duracionMin: 10 });
+    prisma.silla.findUnique.mockResolvedValue({ id: 'silla-1', estado: 'EN_USO', opcion2DuracionMin: 10 });
 
     await expect(servicio.activarManual('silla-1')).rejects.toBeInstanceOf(ConflictException);
   });
@@ -1157,7 +1316,7 @@ describe('SesionesService.activarManual — activación desde el panel, sin pago
       id: 'silla-1',
       nombre: 'Silla 1',
       estado: 'LIBRE',
-      duracionMin: 10,
+      opcion2DuracionMin: 10,
       deviceIdShelly: 'dev-1',
     });
     prisma.sesion.create.mockResolvedValue({ id: 'sesion-manual' });
@@ -1191,7 +1350,7 @@ describe('SesionesService.activarManual — activación desde el panel, sin pago
       id: 'silla-1',
       nombre: 'Silla 1',
       estado: 'LIBRE',
-      duracionMin: 10,
+      opcion2DuracionMin: 10,
       deviceIdShelly: 'dev-1',
     });
     prisma.sesion.create.mockResolvedValue({ id: 'sesion-manual' });
@@ -1242,7 +1401,7 @@ describe('SesionesService — cancelación de timers al cambiar de estado', () =
     prisma.sesion.findUnique.mockResolvedValue(pendiente);
 
     await servicio.crearSesionPendiente(
-      { id: 'silla-1', nombre: 'Silla 1', precio: 1000, duracionMin: 10 } as any,
+      { id: 'silla-1', nombre: 'Silla 1', opcion1DuracionMin: 5, opcion1Precio: 500, opcion2DuracionMin: 10, opcion2Precio: 1000 } as any,
       'ext-ref',
     );
     prisma.sesion.updateMany.mockClear();

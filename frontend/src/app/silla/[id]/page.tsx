@@ -5,12 +5,13 @@ import { useRouter } from "next/navigation";
 import { EstadoBadge } from "@/components/EstadoBadge";
 import { BarraProgreso } from "@/components/BarraProgreso";
 import { FormCodigoCredito } from "@/components/FormCodigoCredito";
+import { SelectorOpcion } from "@/components/SelectorOpcion";
 import { TurnstileWidget } from "@/components/TurnstileWidget";
 import { formatearTimer, useEstadoSilla } from "@/hooks/useEstadoSilla";
 import { iniciarCheckout, obtenerResumenCola, unirseCola } from "@/lib/api";
 import { debeSondearAhora } from "@/lib/polling";
 import { recordarSesionActiva, rutaSesionActiva } from "@/lib/sesionActiva";
-import type { ColaResumen } from "@/lib/tipos";
+import type { ColaResumen, NumeroOpcion } from "@/lib/tipos";
 
 const TURNSTILE_REQUERIDO = Boolean(process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY);
 
@@ -29,6 +30,9 @@ export default function LandingSilla({
   const [uniendose, setUniendose] = useState(false);
   const [errorCola, setErrorCola] = useState<string | null>(null);
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  // null = el cliente todavía no tocó nada: vale la opción por defecto del
+  // sillón (la 2), que llega con el estado.
+  const [opcionElegida, setOpcionElegida] = useState<NumeroOpcion | null>(null);
 
   // Si ya tenés un turno en curso (pagaste y estás esperando/confirmando),
   // te mandamos directo ahí en vez de mostrar esta vista genérica — pasa
@@ -58,6 +62,9 @@ export default function LandingSilla({
   const sinEnergia = estado?.sinEnergia === true && estado.estado !== "FUERA_DE_SERVICIO";
   const sePuedePagarAca = estado?.estado === "LIBRE" && !sinEnergia;
   const mostrarCola = Boolean(ocupada) || sinEnergia;
+  const opcion: NumeroOpcion = opcionElegida ?? estado?.opcionPorDefecto ?? 2;
+  const elegida = estado?.opciones.find((o) => o.opcion === opcion) ?? null;
+  const montoElegido = elegida ? ` $${elegida.precio.toLocaleString("es-AR")}` : "";
 
   // Cuando esta silla puntual no está disponible, mostramos cuánta gente
   // espera en la cola compartida — se puede pagar igual y te asignamos la
@@ -98,7 +105,7 @@ export default function LandingSilla({
     setPagando(true);
     setErrorPago(null);
     try {
-      const { sesionId, initPoint } = await iniciarCheckout(id, turnstileToken);
+      const { sesionId, initPoint } = await iniciarCheckout(id, turnstileToken, opcion);
       // Lo guardamos para que /fracaso pueda liberar la silla al toque si
       // el cliente cancela, y para que /exito pueda seguir ESTA sesión
       // (cortes de luz, vales) y no el estado general de la silla.
@@ -115,7 +122,7 @@ export default function LandingSilla({
     setUniendose(true);
     setErrorCola(null);
     try {
-      const { turnoId, initPoint } = await unirseCola(turnstileToken);
+      const { turnoId, initPoint } = await unirseCola(turnstileToken, opcion, id);
       sessionStorage.setItem(`turnoPendiente`, turnoId);
       // Recordamos desde qué silla (QR) arrancó, para que si se arrepiente en
       // Mercado Pago el "Volver a empezar" lo traiga de vuelta acá.
@@ -184,22 +191,19 @@ export default function LandingSilla({
 
       {sePuedePagarAca && (
         <>
-          <div className="mt-6 rounded-2xl border border-borde bg-marfil p-6">
-            <p className="text-[13px] text-tinta-muted">Masaje completo</p>
-            <p className="mt-1.5 text-[40px] font-medium leading-none">
-              ${estado.precio.toLocaleString("es-AR")}
-            </p>
-            <p className="mt-2 text-sm text-tinta-suave">
-              {estado.duracionMin} minutos
-            </p>
-          </div>
+          <SelectorOpcion
+            opciones={estado.opciones}
+            seleccionada={opcion}
+            onCambiar={setOpcionElegida}
+            deshabilitado={pagando}
+          />
           <TurnstileWidget onToken={setTurnstileToken} />
           <button
             onClick={pagar}
             disabled={pagando || (TURNSTILE_REQUERIDO && !turnstileToken)}
             className="mt-4 w-full rounded-xl bg-terracota py-4 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60"
           >
-            {pagando ? "Conectando con Mercado Pago…" : "Pagar y empezar"}
+            {pagando ? "Conectando con Mercado Pago…" : `Pagar${montoElegido} y empezar`}
           </button>
           {errorPago && (
             <p className="mt-3 text-center text-sm text-terracota-oscuro">
@@ -274,13 +278,21 @@ export default function LandingSilla({
                 : "Te anotamos y te avisamos apenas se libere un sillón."}
             </p>
           </div>
+          <SelectorOpcion
+            opciones={estado.opciones}
+            seleccionada={opcion}
+            onCambiar={setOpcionElegida}
+            deshabilitado={uniendose}
+          />
           <TurnstileWidget onToken={setTurnstileToken} />
           <button
             onClick={unirmeACola}
             disabled={uniendose || (TURNSTILE_REQUERIDO && !turnstileToken)}
             className="mt-4 w-full rounded-xl bg-terracota py-4 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60"
           >
-            {uniendose ? "Conectando con Mercado Pago…" : "Pagar y esperar mi turno"}
+            {uniendose
+              ? "Conectando con Mercado Pago…"
+              : `Pagar${montoElegido} y esperar mi turno`}
           </button>
           {errorCola && (
             <p className="mt-3 text-center text-sm text-terracota-oscuro">{errorCola}</p>
