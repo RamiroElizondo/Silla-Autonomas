@@ -451,16 +451,35 @@ export class ColaService implements OnApplicationBootstrap {
     });
   }
 
-  /** Segundos que faltan para que termine la sesión en curso más próxima a vencer. */
+  /**
+   * Segundos que faltan para que se libere el primer sillón en uso: lo que
+   * queda del masaje más la pausa y el retorno (o lo que queda de esa fase),
+   * igual que `segundosParaLiberar` en la landing. Antes se tomaba
+   * `finSesionActual`, que durante el masaje es el fin del masaje: el número
+   * llegaba a 0 y volvía a subir con la salida, y quien esperaba se ponía
+   * ansioso. Las sesiones con un corte en curso no cuentan (no se sabe).
+   */
   private async segundosHastaProximaSilla(): Promise<number | null> {
     try {
-      const silla = await this.prisma.silla.findFirst({
-        where: { estado: 'EN_USO', finSesionActual: { not: null } },
-        orderBy: { finSesionActual: 'asc' },
-        select: { finSesionActual: true },
+      const sesiones = await this.prisma.sesion.findMany({
+        where: {
+          estado: { in: ['ACTIVA', 'SALIDA'] },
+          interrumpidaEn: null,
+          silla: { estado: 'EN_USO' },
+        },
+        select: {
+          estado: true,
+          duracionMin: true,
+          pausaRetornoSeg: true,
+          retornoSeg: true,
+          finProgramado: true,
+          salidaHasta: true,
+        },
       });
-      if (!silla?.finSesionActual) return null;
-      return Math.max(0, Math.round((silla.finSesionActual.getTime() - Date.now()) / 1000));
+      const tiempos = sesiones
+        .map((s) => calcularReloj(s).segundosParaLiberar)
+        .filter((t): t is number => t !== null);
+      return tiempos.length ? Math.min(...tiempos) : null;
     } catch {
       // Dato informativo: si falla no debe romper el polling del turno.
       return null;

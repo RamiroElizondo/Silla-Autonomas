@@ -876,14 +876,63 @@ describe('ColaService.estadoTurno — cálculos en vivo según el estado', () =>
     prisma.silla.findMany = jest.fn((args: any) =>
       Promise.resolve(args?.where?.estado === 'LIBRE' ? [] : [{ id: 'silla-1' }]),
     );
-    prisma.silla.findFirst = jest
-      .fn()
-      .mockResolvedValue({ finSesionActual: new Date(Date.now() + 90_000) });
+    // Le quedan 90 s de masaje y después 10 s de pausa + 40 s de retorno.
+    prisma.sesion = {
+      ...prisma.sesion,
+      findMany: jest.fn().mockResolvedValue([
+        {
+          estado: 'ACTIVA',
+          duracionMin: 5,
+          pausaRetornoSeg: 10,
+          retornoSeg: 40,
+          finProgramado: new Date(Date.now() + 90_000),
+          salidaHasta: null,
+        },
+      ]),
+    };
 
     const estado = await servicio.estadoTurno('turno-1');
 
-    expect(estado.segundosProximaSilla).toBeGreaterThan(80);
-    expect(estado.segundosProximaSilla).toBeLessThanOrEqual(90);
+    // Masaje + salida juntos: no llega a 0 al terminar el masaje.
+    expect(estado.segundosProximaSilla).toBeGreaterThan(135);
+    expect(estado.segundosProximaSilla).toBeLessThanOrEqual(140);
+  });
+
+  it('con varios sillones en uso, toma el que se libera primero (uno ya en salida)', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.turno.findUnique = jest.fn().mockResolvedValue({
+      id: 'turno-1', codigo: 'ABC-1234', estado: 'EN_COLA', pagadoEn: new Date(),
+      asignadoEn: null, duracionMin: 10, motivoCierre: null, sesionId: null, silla: null, sesion: null,
+    });
+    prisma.turno.count = jest.fn().mockResolvedValue(0);
+    prisma.silla.findMany = jest.fn((args: any) =>
+      Promise.resolve(args?.where?.estado === 'LIBRE' ? [] : [{ id: 'silla-1' }, { id: 'silla-2' }]),
+    );
+    prisma.sesion = {
+      ...prisma.sesion,
+      findMany: jest.fn().mockResolvedValue([
+        {
+          estado: 'ACTIVA',
+          duracionMin: 10,
+          pausaRetornoSeg: 10,
+          retornoSeg: 40,
+          finProgramado: new Date(Date.now() + 300_000),
+          salidaHasta: null,
+        },
+        {
+          estado: 'SALIDA',
+          duracionMin: 5,
+          pausaRetornoSeg: 10,
+          retornoSeg: 40,
+          finProgramado: new Date(),
+          salidaHasta: new Date(Date.now() + 25_000),
+        },
+      ]),
+    };
+
+    const estado = await servicio.estadoTurno('turno-1');
+
+    expect(estado.segundosProximaSilla).toBe(25);
   });
 
   it('turno EN_COLA con el local sin luz: no cuenta sillones sin energía y avisa sinEnergia', async () => {

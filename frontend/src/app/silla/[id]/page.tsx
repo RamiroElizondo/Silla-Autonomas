@@ -3,7 +3,6 @@
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { EstadoBadge } from "@/components/EstadoBadge";
-import { BarraProgreso } from "@/components/BarraProgreso";
 import { FormCodigoCredito } from "@/components/FormCodigoCredito";
 import { SelectorOpcion } from "@/components/SelectorOpcion";
 import { TurnstileWidget } from "@/components/TurnstileWidget";
@@ -23,7 +22,7 @@ export default function LandingSilla({
   const { id } = use(params);
   const router = useRouter();
   const [chequeandoTurno, setChequeandoTurno] = useState(true);
-  const { estado, segundos, segundosParaLiberar, error } = useEstadoSilla(id, 5000);
+  const { estado, segundosParaLiberar, error } = useEstadoSilla(id, 5000);
   const [pagando, setPagando] = useState(false);
   const [errorPago, setErrorPago] = useState<string | null>(null);
   const [cola, setCola] = useState<ColaResumen | null>(null);
@@ -161,8 +160,6 @@ export default function LandingSilla({
     );
   }
 
-  const totalSegundos = estado.duracionMin * 60;
-
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col px-6 pb-10 pt-8">
       <p className="text-xs uppercase tracking-[0.12em] text-tinta-muted">
@@ -219,31 +216,21 @@ export default function LandingSilla({
         </>
       )}
 
-      {estado.estado === "EN_USO" &&
-        !sinEnergia &&
-        (estado.fase === "PAUSA" || estado.fase === "RETORNO") && (
-          <div className="mt-6 rounded-2xl border border-borde bg-marfil p-7 text-center">
-            <p className="text-[15px] font-medium">El sillón se está liberando</p>
-            <p className="mt-2 text-sm text-tinta-muted">
-              La persona anterior está terminando de bajarse. Queda libre en{" "}
-              <span className="tabular-nums">{segundosParaLiberar ?? 0}s</span>.
-            </p>
-          </div>
-        )}
-
-      {estado.estado === "EN_USO" &&
-        !sinEnergia &&
-        estado.fase !== "PAUSA" &&
-        estado.fase !== "RETORNO" && (
+      {/* Quien mira un sillón ocupado ve un solo reloj: lo que falta para que
+          quede libre (masaje + pausa + retorno). Si viera el reloj del masaje,
+          llegaría a 0 y volvería a arrancar con la salida. */}
+      {estado.estado === "EN_USO" && !sinEnergia && (
         <>
           <div className="mt-6 rounded-2xl border border-borde bg-marfil p-7 text-center">
-            <p className="text-[13px] text-tinta-muted">Tiempo restante</p>
+            <p className="text-[13px] text-tinta-muted">Se libera en</p>
             <p className="mt-2 text-[52px] font-medium leading-none tabular-nums">
-              {formatearTimer(segundos)}
+              {formatearTimer(segundosParaLiberar)}
             </p>
-            <div className="mt-5">
-              <BarraProgreso restante={segundos} totalSegundos={totalSegundos} />
-            </div>
+            <p className="mt-3 text-sm text-tinta-muted">
+              {estado.fase === "PAUSA" || estado.fase === "RETORNO"
+                ? "El masaje terminó y la persona se está bajando"
+                : "Hay alguien usando este sillón"}
+            </p>
           </div>
           <div className="mt-4 rounded-xl bg-panal px-4 py-3.5 text-center text-[13px] text-tinta-suave">
             Se libera automáticamente al terminar

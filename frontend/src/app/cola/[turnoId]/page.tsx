@@ -138,9 +138,9 @@ export default function EstadoTurno({
           )}
           {turno.sillasLibres === 0 && segundosProximaSilla !== null && (
             <div className="mt-4 w-full rounded-2xl border border-borde bg-marfil p-5">
-              <p className="text-[13px] text-tinta-muted">
-                Sillón en uso. Tiempo restante
-              </p>
+              {/* Masaje + pausa + retorno del sillón que se libera primero:
+                  baja de corrido, sin llegar a 0 y volver a arrancar. */}
+              <p className="text-[13px] text-tinta-muted">Se libera un sillón en</p>
               <p className="mt-1.5 text-[36px] font-medium leading-none tabular-nums">
                 {formatearTimer(segundosProximaSilla)}
               </p>

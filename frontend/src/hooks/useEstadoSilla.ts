@@ -121,12 +121,23 @@ export function useEstadoSilla(
       if (salidaRef.current !== null && salidaRef.current > 0) {
         setSegundosSalida(salidaRef.current - 1);
       }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [enSalida, fase]);
+
+  // Lo que falta para que el sillón quede libre (masaje + pausa + retorno)
+  // corre en todas las fases, gracia incluida: es tiempo real del sillón, no
+  // el reloj del masaje. Es el número que ve quien espera.
+  const enUso = estado?.estado === "EN_USO";
+  useEffect(() => {
+    if (!enUso) return;
+    const id = setInterval(() => {
       if (liberarRef.current !== null && liberarRef.current > 0) {
         setSegundosParaLiberar(liberarRef.current - 1);
       }
     }, 1000);
     return () => clearInterval(id);
-  }, [enSalida, fase]);
+  }, [enUso]);
 
   return {
     estado,

@@ -9,7 +9,13 @@ import { OPCION_POR_DEFECTO, opcionDe, opcionesPublicas } from './opciones.util'
 
 type SesionVigente = Pick<
   Sesion,
-  'estado' | 'duracionMin' | 'retornoSeg' | 'finProgramado' | 'salidaHasta'
+  | 'estado'
+  | 'duracionMin'
+  | 'pausaRetornoSeg'
+  | 'retornoSeg'
+  | 'finProgramado'
+  | 'salidaHasta'
+  | 'interrumpidaEn'
 >;
 
 @Injectable()
@@ -88,9 +94,11 @@ export class SillasService {
           select: {
             estado: true,
             duracionMin: true,
+            pausaRetornoSeg: true,
             retornoSeg: true,
             finProgramado: true,
             salidaHasta: true,
+            interrumpidaEn: true,
           },
         }),
       );
@@ -100,7 +108,9 @@ export class SillasService {
         segundosRestantes = reloj.segundosRestantes;
         fase = reloj.fase;
         segundosSalida = reloj.segundosSalida;
-        segundosParaLiberar = reloj.segundosParaLiberar;
+        // Con un corte en curso no se sabe cuándo se libera: el reloj está
+        // congelado hasta que EnergiaService reanude o cierre.
+        segundosParaLiberar = sesion.interrumpidaEn ? null : reloj.segundosParaLiberar;
       } else if (silla.finSesionActual) {
         segundosRestantes = Math.max(
           0,
