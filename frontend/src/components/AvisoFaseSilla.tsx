@@ -1,3 +1,5 @@
+import type { StaticImageData } from "next/image";
+import escaneoControl from "@/assets/control-escaneo.png";
 import type { FaseTurno } from "@/lib/tipos";
 import { BotonControl } from "./BotonControl";
 
@@ -12,8 +14,16 @@ import { BotonControl } from "./BotonControl";
  *    sillón vuelve a la posición normal sin arrancar otro masaje.
  *
  * Cada paso lleva el dibujo del botón para que lo encuentren en el control.
+ * El del OK lleva además, arriba, lo que muestra la pantalla del control en
+ * ese momento (el escaneo corporal, sacado del manual del Smart 3D), para que
+ * el cliente reconozca cuándo tiene que apretarlo.
  */
-type Paso = { boton: "start" | "ok"; texto: string; veces?: number };
+type Paso = {
+  boton: "start" | "ok";
+  texto: string;
+  veces?: number;
+  pantalla?: { imagen: StaticImageData; alt: string };
+};
 
 const CONTENIDO: Record<
   "GRACIA" | "PAUSA" | "RETORNO",
@@ -25,7 +35,12 @@ const CONTENIDO: Record<
       { boton: "start", texto: "Apretá START para que el sillón arranque" },
       {
         boton: "ok",
-        texto: "Esperá unos segundos a que aparezca la pantalla en el control y apretá OK",
+        texto:
+          "Espere unos segundos a que aparezca en la pantalla del control la imagen de arriba y presione OK",
+        pantalla: {
+          imagen: escaneoControl,
+          alt: "Pantalla del control: una persona sentada con puntos en la espalda y la palabra Loading",
+        },
       },
     ],
   },
@@ -36,9 +51,9 @@ const CONTENIDO: Record<
     pasos: [],
   },
   RETORNO: {
-    titulo: "Levantá el sillón para bajarte",
-    detalle: "El sillón vuelve a la posición normal sin empezar otro masaje.",
-    pasos: [{ boton: "start", texto: "Apretá START dos veces", veces: 2 }],
+    titulo: "Levanta el sillón para bajarte",
+    detalle: "El sillón vuelve a la posición normal.",
+    pasos: [{ boton: "start", texto: "Presione START dos veces", veces: 2 }],
   },
 };
 
@@ -71,31 +86,40 @@ export function AvisoFaseSilla({
       {pasos.length > 0 && (
         <ol className="mt-4 flex flex-col gap-3 text-left">
           {pasos.map((paso, i) => (
-            <li
-              key={paso.texto}
-              className="flex items-center gap-4 rounded-xl bg-white/70 px-4 py-3"
-            >
-              <div className="relative shrink-0">
-                <BotonControl tipo={paso.boton} tamano={64} />
-                {paso.veces && paso.veces > 1 && (
-                  <span className="absolute -right-2 -top-2 rounded-full bg-terracota px-2 py-0.5 text-xs font-medium text-terracota-claro">
-                    ×{paso.veces}
-                  </span>
-                )}
+            <li key={paso.texto} className="rounded-xl bg-white/70 px-4 py-3">
+              {paso.pantalla && (
+                // Marco gris claro, como la pantalla del control remoto.
+                <div className="mx-auto mb-3 w-44 rounded-lg border-2 border-tinta bg-[#f2f2f2] p-3">
+                  <img
+                    src={paso.pantalla.imagen.src}
+                    alt={paso.pantalla.alt}
+                    width={paso.pantalla.imagen.width}
+                    height={paso.pantalla.imagen.height}
+                    className="h-auto w-full"
+                  />
+                </div>
+              )}
+              <div className="flex items-center gap-4">
+                <div className="relative shrink-0">
+                  <BotonControl tipo={paso.boton} tamano={64} />
+                  {paso.veces && paso.veces > 1 && (
+                    <span className="absolute -right-2 -top-2 rounded-full bg-terracota px-2 py-0.5 text-xs font-medium text-terracota-claro">
+                      ×{paso.veces}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[15px] leading-snug">
+                  {pasos.length > 1 && <span className="font-medium">{i + 1}. </span>}
+                  {paso.texto}
+                </p>
               </div>
-              <p className="text-[15px] leading-snug">
-                {pasos.length > 1 && <span className="font-medium">{i + 1}. </span>}
-                {paso.texto}
-              </p>
             </li>
           ))}
         </ol>
       )}
 
       {fase !== "GRACIA" && segundosSalida !== null && segundosSalida !== undefined && (
-        <p className="mt-4 text-[32px] font-medium leading-none tabular-nums">
-          {segundosSalida}s
-        </p>
+        <p className="mt-4 text-[32px] font-medium leading-none tabular-nums">{segundosSalida}s</p>
       )}
     </div>
   );
