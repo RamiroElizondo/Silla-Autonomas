@@ -15,13 +15,14 @@ RUN npm run build
 
 FROM node:22-slim AS runtime
 WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
-COPY --from=build /app/package.json /app/package-lock.json ./
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/.next ./.next
-COPY --from=build /app/next.config.ts ./next.config.ts
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3003 HOSTNAME=0.0.0.0
+# Salida "standalone" de Next: server.js + solo las deps que usa (sin
+# node_modules completo ni devDependencies). Los estáticos van aparte.
+COPY --from=build --chown=node:node /app/.next/standalone ./
+COPY --from=build --chown=node:node /app/.next/static ./.next/static
 USER node
 EXPOSE 3003
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:3003/').then(r=>process.exit(r.status<500?0:1)).catch(()=>process.exit(1))"
-CMD ["npx", "next", "start", "-p", "3003"]
+CMD ["node", "server.js"]

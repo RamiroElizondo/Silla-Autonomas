@@ -3,6 +3,9 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Build autocontenido en .next/standalone: solo el server y las deps que
+  // realmente usa. Achica la imagen Docker de ~1 GB a ~150-200 MB.
+  output: "standalone",
   // El proyecto nunca tuvo ESLint instalado (no hay eslint/eslint-config-next
   // en package.json, ni config): sin esto, `next build` se queda colgado en
   // un prompt interactivo ("¿cómo configurar ESLint?") que nunca se puede
