@@ -91,7 +91,7 @@ export function TurnstileWidget({
   return (
     <div className="mt-4 flex flex-col items-center">
       <div ref={contenedorRef} />
-      {error && <p className="mt-2 text-xs text-terracota-oscuro">{error}</p>}
+      {error && <p className="mt-2 text-xs text-brand-ink">{error}</p>}
     </div>
   );
 }

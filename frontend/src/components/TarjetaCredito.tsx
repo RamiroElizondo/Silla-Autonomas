@@ -64,12 +64,12 @@ export function TarjetaCredito({
           <button
             onClick={reclamar}
             disabled={canjeando}
-            className="mt-5 w-full rounded-xl bg-terracota py-4 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60"
+            className="mt-5 w-full rounded-xl bg-brand-strong py-4 text-[15px] font-medium text-white transition hover:bg-brand-hover disabled:bg-brand-muted"
           >
             {canjeando ? "Reclamando…" : "Reclamar mi turno"}
           </button>
           {error && (
-            <p className="mt-3 text-sm text-terracota-oscuro">{error}</p>
+            <p className="mt-3 text-sm text-brand-ink">{error}</p>
           )}
           <p className="mt-3 text-xs text-arena">
             Anotá el código: si te vas, podés usarlo hasta el{" "}

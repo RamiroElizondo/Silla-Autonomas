@@ -198,12 +198,12 @@ export default function LandingSilla({
           <button
             onClick={pagar}
             disabled={pagando || (TURNSTILE_REQUERIDO && !turnstileToken)}
-            className="mt-4 w-full rounded-xl bg-terracota py-4 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60"
+            className="mt-4 w-full rounded-xl bg-brand-strong py-4 text-[15px] font-medium text-white transition hover:bg-brand-hover disabled:bg-brand-muted"
           >
             {pagando ? "Conectando con Mercado Pago…" : `Pagar${montoElegido} y empezar`}
           </button>
           {errorPago && (
-            <p className="mt-3 text-center text-sm text-terracota-oscuro">
+            <p className="mt-3 text-center text-sm text-brand-ink">
               {errorPago}
             </p>
           )}
@@ -275,14 +275,14 @@ export default function LandingSilla({
           <button
             onClick={unirmeACola}
             disabled={uniendose || (TURNSTILE_REQUERIDO && !turnstileToken)}
-            className="mt-4 w-full rounded-xl bg-terracota py-4 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60"
+            className="mt-4 w-full rounded-xl bg-brand-strong py-4 text-[15px] font-medium text-white transition hover:bg-brand-hover disabled:bg-brand-muted"
           >
             {uniendose
               ? "Conectando con Mercado Pago…"
               : `Pagar${montoElegido} y esperar mi turno`}
           </button>
           {errorCola && (
-            <p className="mt-3 text-center text-sm text-terracota-oscuro">{errorCola}</p>
+            <p className="mt-3 text-center text-sm text-brand-ink">{errorCola}</p>
           )}
           <p className="mt-3 text-center text-xs text-tinta-muted">
             Te asignamos el primer sillón que se libere, no necesariamente este

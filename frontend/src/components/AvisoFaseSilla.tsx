@@ -74,7 +74,7 @@ export function AvisoFaseSilla({
       role="status"
       className={`mt-6 w-full rounded-2xl border p-6 text-center ${
         destacado
-          ? "border-terracota bg-terracota-claro text-terracota-oscuro"
+          ? "border-brand bg-brand-soft text-brand-ink"
           : "border-arena bg-panal"
       }`}
     >
@@ -103,7 +103,7 @@ export function AvisoFaseSilla({
                 <div className="relative shrink-0">
                   <BotonControl tipo={paso.boton} tamano={64} />
                   {paso.veces && paso.veces > 1 && (
-                    <span className="absolute -right-2 -top-2 rounded-full bg-terracota px-2 py-0.5 text-xs font-medium text-terracota-claro">
+                    <span className="absolute -right-2 -top-2 rounded-full bg-brand-strong px-2 py-0.5 text-xs font-medium text-white">
                       ×{paso.veces}
                     </span>
                   )}

@@ -24,9 +24,9 @@ const config: Record<
   },
   EN_USO: {
     texto: "En uso",
-    fondo: "bg-terracota-claro",
-    texto_color: "text-terracota-oscuro",
-    punto: "bg-terracota",
+    fondo: "bg-brand-soft",
+    texto_color: "text-brand-ink",
+    punto: "bg-brand",
   },
   FUERA_DE_SERVICIO: {
     texto: "Fuera de servicio",

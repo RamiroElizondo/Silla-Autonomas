@@ -67,7 +67,7 @@ export default function Exito({
 
       <Link
         href={`/cola/${turnoId}`}
-        className="mt-8 w-full max-w-xs rounded-xl bg-terracota py-4 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover"
+        className="mt-8 w-full max-w-xs rounded-xl bg-brand-strong py-4 text-[15px] font-medium text-white transition hover:bg-brand-hover"
       >
         Ver mi turno
       </Link>

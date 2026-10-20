@@ -40,27 +40,27 @@ export function SelectorOpcion({
               onClick={() => onCambiar(o.opcion)}
               className={`rounded-2xl border p-5 text-left transition disabled:opacity-60 ${
                 activa
-                  ? "border-terracota bg-terracota-claro"
+                  ? "border-brand bg-brand-soft"
                   : "border-borde bg-marfil hover:border-borde-fuerte"
               }`}
             >
               <span className="flex items-baseline gap-1.5">
                 <span
                   className={`text-[34px] font-medium leading-none tabular-nums ${
-                    activa ? "text-terracota-oscuro" : ""
+                    activa ? "text-brand-ink" : ""
                   }`}
                 >
                   {o.duracionMin}
                 </span>
                 <span
-                  className={`text-sm ${activa ? "text-terracota-oscuro" : "text-tinta-suave"}`}
+                  className={`text-sm ${activa ? "text-brand-ink" : "text-tinta-suave"}`}
                 >
                   min
                 </span>
               </span>
               <span
                 className={`mt-3 block text-[17px] font-medium tabular-nums ${
-                  activa ? "text-terracota-oscuro" : "text-tinta"
+                  activa ? "text-brand-ink" : "text-tinta"
                 }`}
               >
                 ${o.precio.toLocaleString("es-AR")}

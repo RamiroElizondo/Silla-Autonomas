@@ -31,11 +31,11 @@ export default function Fracaso({
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center px-6 text-center">
-      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-terracota-claro">
+      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-soft">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path
             d="M6 6l12 12M18 6L6 18"
-            stroke="#7A3B26"
+            stroke="#146B66"
             strokeWidth="2.5"
             strokeLinecap="round"
           />
@@ -47,7 +47,7 @@ export default function Fracaso({
       </p>
       <Link
         href={`/silla/${id}`}
-        className="mt-8 w-full max-w-xs rounded-xl bg-terracota py-4 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover"
+        className="mt-8 w-full max-w-xs rounded-xl bg-brand-strong py-4 text-[15px] font-medium text-white transition hover:bg-brand-hover"
       >
         Volver a intentar
       </Link>

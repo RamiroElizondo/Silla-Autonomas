@@ -90,7 +90,7 @@ export default function PantallaTV() {
                   <span className="text-[4.4vh] text-tinta-suave tabular-nums">
                     {o.duracionMin} min
                   </span>
-                  <span className="text-[6.4vh] font-medium leading-none text-terracota tabular-nums">
+                  <span className="text-[6.4vh] font-medium leading-none text-brand tabular-nums">
                     ${o.precio.toLocaleString("es-AR")}
                   </span>
                 </p>
@@ -212,7 +212,7 @@ function Detalle({
         <div className="flex items-center gap-[1.5vh]">
           <div className="relative">
             <BotonControl tipo="start" tamano={64} />
-            <span className="absolute -right-3 -top-3 rounded-full bg-terracota px-2 py-0.5 text-[1.8vh] font-medium text-crema">
+            <span className="absolute -right-3 -top-3 rounded-full bg-brand-strong px-2 py-0.5 text-[1.8vh] font-medium text-white">
               ×2
             </span>
           </div>
@@ -244,7 +244,7 @@ function Detalle({
       ) : (
         <div className="mt-[1.6vh] h-[0.9vh] w-[27vh] overflow-hidden rounded-full bg-pista">
           <div
-            className="h-full rounded-full bg-terracota transition-[width] duration-1000 ease-linear"
+            className="h-full rounded-full bg-brand transition-[width] duration-1000 ease-linear"
             style={{ width: `${pct}%` }}
           />
         </div>

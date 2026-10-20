@@ -73,7 +73,7 @@ export function FormCodigoCredito() {
       <label htmlFor="codigo-credito" className="text-[13px] text-tinta-muted">
         Código del vale
       </label>
-      <div className="mt-2 flex w-full items-center justify-center rounded-xl border border-borde bg-white px-4 py-3 text-xl font-medium tabular-nums focus-within:border-terracota">
+      <div className="mt-2 flex w-full items-center justify-center rounded-xl border border-borde bg-white px-4 py-3 text-xl font-medium tabular-nums focus-within:border-brand">
         <span className="select-none text-tinta-muted" aria-hidden="true">
           LUZ-
         </span>
@@ -93,11 +93,11 @@ export function FormCodigoCredito() {
       <button
         type="submit"
         disabled={canjeando || (cuerpo.length !== LARGO_CUERPO && cuerpo.length !== 4)}
-        className="mt-3 w-full rounded-xl bg-terracota py-3.5 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60"
+        className="mt-3 w-full rounded-xl bg-brand-strong py-3.5 text-[15px] font-medium text-white transition hover:bg-brand-hover disabled:bg-brand-muted"
       >
         {canjeando ? "Canjeando…" : "Canjear"}
       </button>
-      {error && <p className="mt-3 text-center text-sm text-terracota-oscuro">{error}</p>}
+      {error && <p className="mt-3 text-center text-sm text-brand-ink">{error}</p>}
     </form>
   );
 }

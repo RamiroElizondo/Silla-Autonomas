@@ -275,7 +275,7 @@ export function FormSilla({
         </div>
 
         {errorVerificacion && (
-          <p className="rounded-xl bg-terracota-claro px-3.5 py-2.5 text-sm text-terracota-oscuro">
+          <p className="rounded-xl bg-brand-soft px-3.5 py-2.5 text-sm text-brand-ink">
             {errorVerificacion}
           </p>
         )}
@@ -296,7 +296,7 @@ export function FormSilla({
               )}
             </>
           ) : (
-            <p className="rounded-xl bg-terracota-claro px-3.5 py-2.5 text-sm text-terracota-oscuro">
+            <p className="rounded-xl bg-brand-soft px-3.5 py-2.5 text-sm text-brand-ink">
               {verificacion.motivo}
             </p>
           ))}
@@ -309,7 +309,7 @@ export function FormSilla({
       </div>
 
       {error && (
-        <p className="mt-3 rounded-xl bg-terracota-claro px-3.5 py-2.5 text-sm text-terracota-oscuro">
+        <p className="mt-3 rounded-xl bg-brand-soft px-3.5 py-2.5 text-sm text-brand-ink">
           {error}
         </p>
       )}
@@ -318,7 +318,7 @@ export function FormSilla({
         <button
           type="submit"
           disabled={guardando}
-          className="min-h-11 rounded-[10px] bg-terracota px-4 py-2 text-[13px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60 sm:min-h-0"
+          className="min-h-11 rounded-[10px] bg-brand-strong px-4 py-2 text-[13px] font-medium text-white transition hover:bg-brand-hover disabled:bg-brand-muted sm:min-h-0"
         >
           {guardando ? "Guardando…" : silla ? "Guardar cambios" : "Crear sillón"}
         </button>

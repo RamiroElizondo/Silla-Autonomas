@@ -154,26 +154,26 @@ export default function EstadoTurno({
 
       {turno.estado === "ASIGNADO" && (
         <>
-          <div className="mt-6 rounded-2xl border border-terracota bg-terracota-claro p-6">
-            <p className="text-[15px] font-medium text-terracota-oscuro">
+          <div className="mt-6 rounded-2xl border border-brand bg-brand-soft p-6">
+            <p className="text-[15px] font-medium text-brand-ink">
               ¡Te toca {turno.sillaAsignada?.nombre ?? "tu sillón"}!
             </p>
-            <p className="mt-2 text-sm text-terracota-oscuro">
+            <p className="mt-2 text-sm text-brand-ink">
               Confirmá antes de que se acabe el tiempo, o pasás al siguiente.
             </p>
-            <p className="mt-3 text-[44px] font-medium leading-none tabular-nums text-terracota-oscuro">
+            <p className="mt-3 text-[44px] font-medium leading-none tabular-nums text-brand-ink">
               {formatearVentana(segundosVentana)}
             </p>
           </div>
           <button
             onClick={confirmar}
             disabled={confirmando}
-            className="mt-4 w-full rounded-xl bg-terracota py-4 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60"
+            className="mt-4 w-full rounded-xl bg-brand-strong py-4 text-[15px] font-medium text-white transition hover:bg-brand-hover disabled:bg-brand-muted"
           >
             {confirmando ? "Confirmando…" : "Ya estoy, confirmar"}
           </button>
           {errorConfirmar && (
-            <p className="mt-3 text-center text-sm text-terracota-oscuro">{errorConfirmar}</p>
+            <p className="mt-3 text-center text-sm text-brand-ink">{errorConfirmar}</p>
           )}
         </>
       )}

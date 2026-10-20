@@ -167,27 +167,27 @@ export default function Exito({
 
       {esperandoConfirmacion && (
         <>
-          <div className="mt-6 w-full rounded-2xl border border-terracota bg-terracota-claro p-6">
-            <p className="text-[15px] font-medium text-terracota-oscuro">
+          <div className="mt-6 w-full rounded-2xl border border-brand bg-brand-soft p-6">
+            <p className="text-[15px] font-medium text-brand-ink">
               Sentate en {sesion?.sillaNombre ?? "tu sillón"} y confirmá
             </p>
-            <p className="mt-2 text-sm text-terracota-oscuro">
+            <p className="mt-2 text-sm text-brand-ink">
               Lo encendemos cuando toques el botón. Si no confirmás a tiempo, el
               sillón se libera.
             </p>
-            <p className="mt-3 text-[44px] font-medium leading-none tabular-nums text-terracota-oscuro">
+            <p className="mt-3 text-[44px] font-medium leading-none tabular-nums text-brand-ink">
               {formatearTimer(segundosVentana)}
             </p>
           </div>
           <button
             onClick={confirmar}
             disabled={confirmando}
-            className="mt-4 w-full rounded-xl bg-terracota py-4 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60"
+            className="mt-4 w-full rounded-xl bg-brand-strong py-4 text-[15px] font-medium text-white transition hover:bg-brand-hover disabled:bg-brand-muted"
           >
             {confirmando ? "Confirmando…" : "Ya estoy, confirmar"}
           </button>
           {errorSentarse && (
-            <p className="mt-3 text-center text-sm text-terracota-oscuro">{errorSentarse}</p>
+            <p className="mt-3 text-center text-sm text-brand-ink">{errorSentarse}</p>
           )}
         </>
       )}

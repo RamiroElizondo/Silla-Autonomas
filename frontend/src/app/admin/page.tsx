@@ -105,12 +105,12 @@ function Login({ onLogin }: { onLogin: () => void }) {
         <button
           type="submit"
           disabled={cargando}
-          className="mt-2 rounded-xl bg-terracota py-3.5 text-[15px] font-medium text-terracota-claro transition hover:bg-terracota-hover disabled:opacity-60"
+          className="mt-2 rounded-xl bg-brand-strong py-3.5 text-[15px] font-medium text-white transition hover:bg-brand-hover disabled:bg-brand-muted"
         >
           {cargando ? "Entrando…" : "Entrar"}
         </button>
         {error && (
-          <p className="text-center text-sm text-terracota-oscuro">{error}</p>
+          <p className="text-center text-sm text-brand-ink">{error}</p>
         )}
       </form>
     </main>
@@ -134,7 +134,7 @@ function ultimaPagina(total: number) {
 const BTN_BASE =
   "inline-flex min-h-10 items-center justify-center whitespace-nowrap rounded-[10px] border px-3.5 py-2 text-[13px] transition disabled:opacity-50 sm:min-h-0 sm:px-3";
 const BTN = `${BTN_BASE} border-borde-fuerte text-tinta-suave hover:bg-panal`;
-const BTN_PELIGRO = `${BTN_BASE} border-terracota-borde text-terracota-oscuro hover:bg-terracota-claro`;
+const BTN_PELIGRO = `${BTN_BASE} border-brand-borde text-brand-ink hover:bg-brand-soft`;
 const BTN_SUAVE = `${BTN_BASE} border-transparent text-tinta-muted hover:bg-panal`;
 
 function formatoFecha(iso: string) {
@@ -294,7 +294,7 @@ function Dashboard({
         <div className="flex items-center gap-4 text-[13px] text-tinta-suave">
           <span className="flex items-center gap-1.5">
             <span
-              className={`h-1.5 w-1.5 rounded-full ${shellyOk ? "bg-salvia" : "bg-terracota"}`}
+              className={`h-1.5 w-1.5 rounded-full ${shellyOk ? "bg-salvia" : "bg-brand"}`}
             />
             {shellyOk ? "Shelly conectado" : "Shelly con problemas"}
           </span>
@@ -308,7 +308,7 @@ function Dashboard({
       </header>
 
       {error && (
-        <p className="mt-4 rounded-xl bg-terracota-claro px-4 py-3 text-sm text-terracota-oscuro">
+        <p className="mt-4 rounded-xl bg-brand-soft px-4 py-3 text-sm text-brand-ink">
           {error}
         </p>
       )}
@@ -363,7 +363,7 @@ function Dashboard({
               />
             </div>
             <div className="flex min-w-0 items-start gap-3.5 pr-28 sm:items-center sm:pr-0">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-terracota-claro text-terracota">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand">
                 <IconoSilla />
               </div>
               <div className="min-w-0">
@@ -379,7 +379,7 @@ function Dashboard({
                 </p>
                 <ResultadoPruebaLinea resultado={pruebas[silla.id]} />
                 {silla.salud?.alertas?.map((a) => (
-                  <p key={a} className="mt-0.5 break-words text-[13px] text-terracota-oscuro">
+                  <p key={a} className="mt-0.5 break-words text-[13px] text-brand-ink">
                     ⚠ {a}
                   </p>
                 ))}
@@ -433,7 +433,7 @@ function Dashboard({
               return (
                 <article
                   key={p.id}
-                  className="flex flex-col gap-3 rounded-xl border border-terracota-borde bg-terracota-claro p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5"
+                  className="flex flex-col gap-3 rounded-xl border border-brand-borde bg-brand-soft p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5"
                 >
                   <div className="min-w-0">
                     <p className="text-[15px] font-medium">
@@ -441,7 +441,7 @@ function Dashboard({
                       {p.sesion?.silla && ` · ${p.sesion.silla.nombre}`}
                       {sinReferencia && p.turno?.codigo && ` · Turno ${p.turno.codigo}`}
                     </p>
-                    <p className="mt-0.5 text-[13px] text-terracota-oscuro">
+                    <p className="mt-0.5 text-[13px] text-brand-ink">
                       {MOTIVOS_REVISION[p.motivoRevision ?? ""] ??
                         p.motivoRevision ??
                         "Sin motivo registrado"}
@@ -699,7 +699,7 @@ function ModalConfirmar({
           </button>
           <button
             onClick={onConfirmar}
-            className="inline-flex min-h-10 items-center justify-center rounded-[10px] bg-terracota px-4 py-2.5 text-[13px] font-medium text-terracota-claro transition hover:bg-terracota-hover sm:min-h-0"
+            className="inline-flex min-h-10 items-center justify-center rounded-[10px] bg-brand-strong px-4 py-2.5 text-[13px] font-medium text-white transition hover:bg-brand-hover sm:min-h-0"
           >
             {textoConfirmar}
           </button>
@@ -717,14 +717,14 @@ function ResultadoPruebaLinea({
   if (!resultado || resultado === "cargando") return null;
   if ("error" in resultado) {
     return (
-      <p className="mt-0.5 text-[13px] text-terracota-oscuro">
+      <p className="mt-0.5 text-[13px] text-brand-ink">
         ✕ {resultado.error}
       </p>
     );
   }
   if (!resultado.online) {
     return (
-      <p className="mt-0.5 text-[13px] text-terracota-oscuro">
+      <p className="mt-0.5 text-[13px] text-brand-ink">
         ✕ Offline — revisar WiFi del local
       </p>
     );
@@ -744,7 +744,7 @@ function ResultadoPruebaLinea({
         {resultado.initialState === "off" && " · al volver la luz queda apagado"}
       </p>
       {resultado.advertencia && (
-        <p className="mt-0.5 text-[13px] text-terracota-oscuro">
+        <p className="mt-0.5 text-[13px] text-brand-ink">
           ⚠ {resultado.advertencia}
         </p>
       )}
@@ -857,7 +857,7 @@ function textoDetalleSesion(sesion: SesionAdmin): string {
 
 function BadgeCredito({ credito }: { credito: CreditoAdmin }) {
   const estilos: Record<CreditoAdmin["estado"], [string, string]> = {
-    DISPONIBLE: ["bg-terracota-claro text-terracota-oscuro", "Sin usar"],
+    DISPONIBLE: ["bg-brand-soft text-brand-ink", "Sin usar"],
     CANJEADO: ["bg-salvia-claro text-salvia-oscuro", "Usado"],
     VENCIDO: ["bg-pista text-tinta-muted", "Vencido"],
   };
@@ -869,8 +869,8 @@ function BadgeCredito({ credito }: { credito: CreditoAdmin }) {
 
 function BadgeSesion({ estado }: { estado: SesionAdmin["estado"] }) {
   const estilos: Record<SesionAdmin["estado"], [string, string]> = {
-    ACTIVA: ["bg-terracota-claro text-terracota-oscuro", "Activa"],
-    SALIDA: ["bg-terracota-claro text-terracota-oscuro", "Levantando sillón"],
+    ACTIVA: ["bg-brand-soft text-brand-ink", "Activa"],
+    SALIDA: ["bg-brand-soft text-brand-ink", "Levantando sillón"],
     COMPLETADA: ["bg-salvia-claro text-salvia-oscuro", "Completada"],
     PENDIENTE: ["bg-panal text-tinta-suave", "Pendiente"],
     ESPERANDO_CONFIRMACION: ["bg-panal text-tinta-suave", "Esperando al cliente"],

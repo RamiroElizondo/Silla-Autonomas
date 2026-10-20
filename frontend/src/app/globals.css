@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* Tokens del sistema de diseño: paleta cálida crema/terracota/salvia */
+/* Tokens del sistema de diseño: paleta cálida crema/celeste/salvia */
 @theme {
   --color-crema: #f7f2e9;
   --color-marfil: #fffcf5;
@@ -13,12 +13,16 @@
   --color-tinta-muted: #8a8172;
   --color-arena: #a69c89;
 
-  --color-terracota: #b85c3f;
-  --color-terracota-hover: #a34f35;
-  --color-terracota-claro: #f3e2da;
-  --color-terracota-oscuro: #7a3b26;
-  --color-terracota-borde: #e3b7a8;
-  --color-terracota-tv: #c98b6f;
+  /* Acento celeste (antes terracota) */
+  --color-brand: #2aa39c; /* acento: títulos grandes, bordes, ítem activo */
+  --color-brand-strong: #1c847e; /* botones con texto blanco (4,5:1) */
+  --color-brand-hover: #176e69; /* hover de los botones */
+  --color-brand-soft: #daf1ef; /* fondos suaves: badge, opción elegida */
+  --color-brand-ink: #146b66; /* texto chico sobre crema o fondo suave */
+  --color-brand-muted: #8ccfca; /* botón deshabilitado / cargando */
+  --color-brand-borde: #a9dcd8; /* borde de avisos sobre fondo suave */
+  --color-brand-glow: #6fd8d0; /* detalles sobre fondo oscuro (TV) */
+  --color-brand-logo: #54c3bd;
 
   --color-salvia: #6f8261;
   --color-salvia-claro: #e7ece0;
