@@ -41,4 +41,4 @@ export const NOMBRE_MAX_LENGTH = 80;
  */
 export const GRACIA_INICIO_MAX_SEG = 120;
 export const PAUSA_RETORNO_MAX_SEG = 60;
-export const RETORNO_MAX_SEG = 120;
+export const RETORNO_MAX_SEG = 360;

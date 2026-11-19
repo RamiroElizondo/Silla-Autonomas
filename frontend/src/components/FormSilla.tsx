@@ -226,7 +226,7 @@ export function FormSilla({
               required
               type="number"
               min={0}
-              max={120}
+              max={360}
               value={retornoSeg}
               onChange={(e) => setRetornoSeg(e.target.value)}
               className={claseInput}
