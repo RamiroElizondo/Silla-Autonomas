@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { EstadoSesion } from '@prisma/client';
 import { CreditosService } from '../creditos/creditos.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { HeartbeatService } from '../shelly/heartbeat.service';
@@ -195,33 +196,44 @@ export class AdminService {
     return this.creditos.listar(take, skip);
   }
 
-  /** Métricas simples: hoy y últimos 30 días. */
+  /**
+   * Métricas de la cabecera del panel: hoy y mes calendario, en hora de
+   * Argentina. Se agregan en la base sobre TODAS las sesiones (antes el panel
+   * las calculaba sobre las últimas 50 del historial, y al acumularse paradas
+   * de emergencia las ventas viejas del mes quedaban afuera).
+   *
+   * Misma regla que usaba el panel: cuenta como cobrada una sesión ACTIVA,
+   * SALIDA o COMPLETADA; las manuales suman sesiones pero no ingresos.
+   */
   async metricas() {
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
-    const hace30 = new Date(Date.now() - 30 * 24 * 60 * 60_000);
+    const ahora = new Date();
+    const inicioHoy = inicioEnArgentina(ahora, 'dia');
+    const inicioMes = inicioEnArgentina(ahora, 'mes');
+    const cobrada = {
+      estado: { in: ['ACTIVA', 'SALIDA', 'COMPLETADA'] as EstadoSesion[] },
+    };
 
-    const [sesionesHoy, ingresosHoy, sesiones30, ingresos30] =
+    const [sesionesHoy, ingresosHoy, sesionesMes, ingresosMes] =
       await this.prisma.$transaction([
         this.prisma.sesion.count({
-          where: { estado: 'COMPLETADA', inicio: { gte: hoy } },
+          where: { ...cobrada, creadaEn: { gte: inicioHoy } },
         }),
-        this.prisma.pago.aggregate({
+        this.prisma.sesion.aggregate({
           _sum: { monto: true },
-          where: { estado: 'APROBADO', recibidoEn: { gte: hoy } },
+          where: { ...cobrada, esManual: false, creadaEn: { gte: inicioHoy } },
         }),
         this.prisma.sesion.count({
-          where: { estado: 'COMPLETADA', inicio: { gte: hace30 } },
+          where: { ...cobrada, creadaEn: { gte: inicioMes } },
         }),
-        this.prisma.pago.aggregate({
+        this.prisma.sesion.aggregate({
           _sum: { monto: true },
-          where: { estado: 'APROBADO', recibidoEn: { gte: hace30 } },
+          where: { ...cobrada, esManual: false, creadaEn: { gte: inicioMes } },
         }),
       ]);
 
     return {
       hoy: { sesiones: sesionesHoy, ingresos: Number(ingresosHoy._sum.monto ?? 0) },
-      ultimos30Dias: { sesiones: sesiones30, ingresos: Number(ingresos30._sum.monto ?? 0) },
+      mes: { sesiones: sesionesMes, ingresos: Number(ingresosMes._sum.monto ?? 0) },
     };
   }
 
@@ -256,4 +268,16 @@ export class AdminService {
       advertencia: AdminService.advertirInitialState(estado.initialState),
     };
   }
+}
+
+/** Argentina no tiene horario de verano: UTC-3 fijo. */
+const OFFSET_AR_MS = 3 * 60 * 60_000;
+
+/** Inicio del día o del mes en curso en hora de Argentina, como instante UTC. */
+export function inicioEnArgentina(ahora: Date, unidad: 'dia' | 'mes'): Date {
+  const local = new Date(ahora.getTime() - OFFSET_AR_MS);
+  const y = local.getUTCFullYear();
+  const m = local.getUTCMonth();
+  const d = unidad === 'dia' ? local.getUTCDate() : 1;
+  return new Date(Date.UTC(y, m, d) + OFFSET_AR_MS);
 }

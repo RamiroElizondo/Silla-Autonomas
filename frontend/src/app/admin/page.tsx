@@ -10,6 +10,7 @@ import {
   obtenerColaAdmin,
   obtenerCreditos,
   obtenerHistorial,
+  obtenerMetricas,
   obtenerPagosRevision,
   obtenerSillasAdmin,
   pararEmergencia,
@@ -17,6 +18,7 @@ import {
   resolverPago,
   verificarSesion,
 } from "@/lib/api";
+import type { MetricasAdmin } from "@/lib/api";
 import type {
   CreditoAdmin,
   PagoRevision,
@@ -156,8 +158,8 @@ function Dashboard({
   const [sesiones, setSesiones] = useState<SesionAdmin[]>([]);
   const [totalSesiones, setTotalSesiones] = useState(0);
   const [paginaOps, setPaginaOps] = useState(0);
-  /** Últimas sesiones, solo para calcular las métricas de arriba. */
-  const [recientes, setRecientes] = useState<SesionAdmin[]>([]);
+  /** Métricas de arriba (hoy / mes), calculadas en el backend. */
+  const [metricas, setMetricas] = useState<MetricasAdmin | null>(null);
   /** Página visible de "Vales por cortes de energía". */
   const [creditos, setCreditos] = useState<CreditoAdmin[]>([]);
   const [totalCreditos, setTotalCreditos] = useState(0);
@@ -181,21 +183,17 @@ function Dashboard({
   const cargar = useCallback(async () => {
     const pedido = ++ultimoPedido.current;
     try {
-      const [s, r, h, c, pr, co] = await Promise.all([
+      const [s, m, ops, c, pr, co] = await Promise.all([
         obtenerSillasAdmin(),
-        obtenerHistorial(50),
-        // En la primera página no hace falta un pedido aparte: sale de `recientes`.
-        paginaOps === 0
-          ? Promise.resolve(null)
-          : obtenerHistorial(TAM_PAGINA, paginaOps * TAM_PAGINA),
+        obtenerMetricas(),
+        obtenerHistorial(TAM_PAGINA, paginaOps * TAM_PAGINA),
         obtenerCreditos(TAM_PAGINA, paginaVales * TAM_PAGINA),
         obtenerPagosRevision(50),
         obtenerColaAdmin(),
       ]);
       if (pedido !== ultimoPedido.current) return;
-      const ops = h ?? { items: r.items.slice(0, TAM_PAGINA), total: r.total };
       setSillas(s);
-      setRecientes(r.items);
+      setMetricas(m);
       setSesiones(ops.items);
       setTotalSesiones(ops.total);
       setCreditos(c.items);
@@ -270,17 +268,8 @@ function Dashboard({
     }
   }
 
-  const hoy = new Date().toDateString();
-  const esteMes = new Date().getMonth();
-  const cobradas = recientes.filter(
-    (s) => s.estado === "ACTIVA" || s.estado === "SALIDA" || s.estado === "COMPLETADA",
-  );
-  const deHoy = cobradas.filter((s) => new Date(s.creadaEn).toDateString() === hoy);
-  const delMes = cobradas.filter(
-    (s) => new Date(s.creadaEn).getMonth() === esteMes,
-  );
-  const suma = (xs: SesionAdmin[]) =>
-    xs.reduce((acc, s) => acc + (s.esManual ? 0 : Number(s.monto)), 0);
+  const pesos = (n: number | undefined) =>
+    metricas ? `$${(n ?? 0).toLocaleString("es-AR")}` : "—";
 
   const shellyOk = sillas.every((s) => s.salud?.online !== false);
 
@@ -314,11 +303,11 @@ function Dashboard({
       )}
 
       <section className="mt-5 grid grid-cols-2 gap-2.5 sm:mt-6 sm:grid-cols-3">
-        <Metrica etiqueta="Ingresos hoy" valor={`$${suma(deHoy).toLocaleString("es-AR")}`} />
-        <Metrica etiqueta="Sesiones hoy" valor={String(deHoy.length)} />
+        <Metrica etiqueta="Ingresos hoy" valor={pesos(metricas?.hoy.ingresos)} />
+        <Metrica etiqueta="Sesiones hoy" valor={metricas ? String(metricas.hoy.sesiones) : "—"} />
         <Metrica
           etiqueta="Este mes"
-          valor={`$${suma(delMes).toLocaleString("es-AR")}`}
+          valor={pesos(metricas?.mes.ingresos)}
           className="col-span-2 sm:col-span-1"
         />
       </section>

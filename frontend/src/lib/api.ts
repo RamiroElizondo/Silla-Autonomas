@@ -199,6 +199,16 @@ export function obtenerColaAdmin() {
   return request<TurnoColaAdmin[]>(`/admin/cola`);
 }
 
+export interface MetricasAdmin {
+  hoy: { sesiones: number; ingresos: number };
+  mes: { sesiones: number; ingresos: number };
+}
+
+/** Métricas de la cabecera, agregadas en el backend sobre todas las sesiones. */
+export function obtenerMetricas() {
+  return request<MetricasAdmin>("/admin/metricas");
+}
+
 export function obtenerHistorial(take = 50, skip = 0) {
   return request<HistorialRespuesta>(`/admin/sesiones?take=${take}&skip=${skip}`);
 }
