@@ -1268,7 +1268,12 @@ describe('SesionesService.detenerEmergencia — parada de emergencia', () => {
     );
     expect(sillas.invalidarCache).toHaveBeenCalledWith('silla-1');
     expect(prisma.turno.updateMany).not.toHaveBeenCalled();
-    expect(resultado).toEqual({ ok: true, sillaId: 'silla-1', sesionCancelada: null });
+    expect(resultado).toEqual({
+      ok: true,
+      sillaId: 'silla-1',
+      sesionCancelada: null,
+      sesionCompletada: null,
+    });
   });
 
   it('con una sesión activa: la cancela, cierra el turno enlazado y libera la silla', async () => {
@@ -1291,7 +1296,12 @@ describe('SesionesService.detenerEmergencia — parada de emergencia', () => {
       }),
     );
     expect(sillas.invalidarCache).toHaveBeenCalledWith('silla-1');
-    expect(resultado).toEqual({ ok: true, sillaId: 'silla-1', sesionCancelada: 'sesion-1' });
+    expect(resultado).toEqual({
+      ok: true,
+      sillaId: 'silla-1',
+      sesionCancelada: 'sesion-1',
+      sesionCompletada: null,
+    });
   });
 });
 
@@ -1720,6 +1730,58 @@ describe('SesionesService — gracia de inicio y fase SALIDA (retorno de la sill
         estado: { in: expect.arrayContaining(['SALIDA']) },
       }),
     });
+    // Cortar en SALIDA no anula el turno: el masaje ya se dio entero.
+    expect(r.sesionCompletada).toBe('sesion-1');
+    expect(r.sesionCancelada).toBeNull();
+    expect(prisma.sesion.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ estado: 'COMPLETADA', motivoCierre: 'retorno_cortado_manual' }),
+      }),
+    );
+    expect(prisma.turno.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { sesionId: 'sesion-1', estado: 'EN_USO' },
+        data: expect.objectContaining({ estado: 'COMPLETADA', motivoCierre: 'retorno_cortado_manual' }),
+      }),
+    );
+  });
+
+  it('parada con el tiempo de masaje ya vencido (ACTIVA, sin corte): cuenta como completada', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.silla.findUnique.mockResolvedValue({ id: 'silla-1', nombre: 'Silla 1', deviceIdShelly: 'dev-1' });
+    prisma.sesion.findFirst.mockResolvedValue({
+      ...conTiempos,
+      estado: 'ACTIVA',
+      interrumpidaEn: null,
+      finProgramado: new Date(Date.now() - 1_000),
+    });
+
+    const r = await servicio.detenerEmergencia('silla-1');
+
+    expect(r.sesionCompletada).toBe('sesion-1');
+    expect(prisma.sesion.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ estado: 'COMPLETADA' }) }),
+    );
+  });
+
+  it('parada antes de que termine el masaje: la sesión queda CANCELADA', async () => {
+    const { servicio, prisma } = crearServicio();
+    prisma.silla.findUnique.mockResolvedValue({ id: 'silla-1', nombre: 'Silla 1', deviceIdShelly: 'dev-1' });
+    prisma.sesion.findFirst.mockResolvedValue({
+      ...conTiempos,
+      estado: 'ACTIVA',
+      interrumpidaEn: null,
+      finProgramado: new Date(Date.now() + 60_000),
+    });
+
+    const r = await servicio.detenerEmergencia('silla-1');
+
     expect(r.sesionCancelada).toBe('sesion-1');
+    expect(r.sesionCompletada).toBeNull();
+    expect(prisma.sesion.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ estado: 'CANCELADA', motivoCierre: 'parada_de_emergencia' }),
+      }),
+    );
   });
 });

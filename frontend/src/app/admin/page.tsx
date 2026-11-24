@@ -641,7 +641,7 @@ function Dashboard({
       {confirmarParar && (
         <ModalConfirmar
           titulo="Parada de emergencia"
-          mensaje={`Se va a cortar la corriente de ${confirmarParar.nombre} y la sesión en curso quedará cancelada.`}
+          mensaje={`Se va a cortar la corriente de ${confirmarParar.nombre}. Si el tiempo de masaje todavía no terminó, la sesión queda cancelada y no cuenta. Si ya está en el retorno, el turno cuenta como completado (suma a ventas y sesiones).`}
           textoConfirmar="Sí, cortar"
           onConfirmar={() => {
             const silla = confirmarParar;
@@ -824,6 +824,7 @@ const MOTIVOS: Record<string, string> = {
   completada_tras_reinicio: "Cerrada al reiniciar",
   pago_no_recibido: "No pagó",
   parada_de_emergencia: "Parada de emergencia",
+  retorno_cortado_manual: "Terminó (retorno cortado a mano)",
   corte_de_energia: "Corte de luz",
   corte_sobre_el_final: "Corte sobre el final",
   sin_energia_al_pagar: "Sin luz al momento del pago",

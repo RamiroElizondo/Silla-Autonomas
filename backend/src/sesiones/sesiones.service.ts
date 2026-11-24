@@ -989,7 +989,18 @@ export class SesionesService implements OnApplicationBootstrap {
     return true;
   }
 
-  /** Parada de emergencia: corta ya, marca la sesión como CANCELADA. */
+  /**
+   * Parada de emergencia: corta la corriente ya y libera la silla.
+   *
+   * Cómo queda la sesión depende de en qué momento se corta:
+   *  - Antes de que termine el tiempo de masaje → CANCELADA (turno anulado,
+   *    no suma a ventas ni a sesiones).
+   *  - Con el tiempo de masaje ya cumplido (fase SALIDA: pausa o pulso de
+   *    retorno, o ACTIVA con el fin ya vencido y sin corte de luz) → el turno
+   *    se dio entero: queda COMPLETADA con motivo `retorno_cortado_manual` y
+   *    cuenta para las métricas. Es el caso del encargado que corta a mano
+   *    porque el cliente no acomodó bien la silla.
+   */
   async detenerEmergencia(sillaId: string) {
     const silla = await this.prisma.silla.findUnique({ where: { id: sillaId } });
     if (!silla) throw new NotFoundException('Sillón no encontrado');
@@ -1002,14 +1013,26 @@ export class SesionesService implements OnApplicationBootstrap {
         estado: { in: ['ACTIVA', 'SALIDA', 'ESPERANDO_ENERGIA', 'ESPERANDO_CONFIRMACION'] },
       },
     });
+    let sesionCompletada: string | null = null;
+    let sesionCancelada: string | null = null;
     if (activa) {
       this.cancelarTimer(activa.id);
+      const ahora = new Date();
+      const masajeCumplido =
+        activa.estado === 'SALIDA' ||
+        (activa.estado === 'ACTIVA' &&
+          !activa.interrumpidaEn &&
+          !!activa.finProgramado &&
+          activa.finProgramado.getTime() <= ahora.getTime());
+      const estado = masajeCumplido ? 'COMPLETADA' : 'CANCELADA';
+      const motivoCierre = masajeCumplido ? 'retorno_cortado_manual' : 'parada_de_emergencia';
+
       await this.prisma.sesion.update({
         where: { id: activa.id },
         data: {
-          estado: 'CANCELADA',
-          finReal: new Date(),
-          motivoCierre: 'parada_de_emergencia',
+          estado,
+          finReal: ahora,
+          motivoCierre,
           interrumpidaEn: null,
           salidaHasta: null,
         },
@@ -1020,20 +1043,24 @@ export class SesionesService implements OnApplicationBootstrap {
       // no se invalida acá para no crear un ciclo de módulos.)
       await this.prisma.turno.updateMany({
         where: { sesionId: activa.id, estado: 'EN_USO' },
-        data: {
-          estado: 'CANCELADA',
-          finReal: new Date(),
-          motivoCierre: 'parada_de_emergencia',
-        },
+        data: { estado, finReal: ahora, motivoCierre },
       });
+      if (masajeCumplido) sesionCompletada = activa.id;
+      else sesionCancelada = activa.id;
     }
     await this.prisma.silla.update({
       where: { id: sillaId },
       data: { estado: 'LIBRE', finSesionActual: null },
     });
     this.sillas.invalidarCache(sillaId);
-    this.logger.warn(`Parada de emergencia en silla ${silla.nombre}`);
-    return { ok: true, sillaId, sesionCancelada: activa?.id ?? null };
+    if (sesionCompletada) {
+      this.logger.log(
+        `Silla ${silla.nombre}: retorno cortado a mano, sesión ${sesionCompletada} COMPLETADA`,
+      );
+    } else {
+      this.logger.warn(`Parada de emergencia en silla ${silla.nombre}`);
+    }
+    return { ok: true, sillaId, sesionCancelada, sesionCompletada };
   }
 
   /** Activación manual desde el panel admin (sin pago). */
